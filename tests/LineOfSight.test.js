@@ -14,13 +14,7 @@ import { LineOfSight } from '../src/world/LineOfSight.js';
  * 3 # . . . . . #
  * 4 # # # # # # #
  */
-const ROOM = [
-  '#######',
-  '#.....#',
-  '#.#...#',
-  '#.....#',
-  '#######',
-];
+const ROOM = ['#######', '#.....#', '#.#...#', '#.....#', '#######'];
 
 /** Two rooms with no way between them. */
 const SPLIT = ['#########', '#...#...#', '#########'];

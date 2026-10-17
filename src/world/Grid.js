@@ -231,7 +231,9 @@ export class Grid {
 
     for (const wp of this.waypoints) {
       if (this._floorNeighbourCount(wp.cx, wp.cy) === 0) {
-        this.warnings.push(`waypoint ${wp.order} at (${wp.cx}, ${wp.cy}) is walled in on all sides`);
+        this.warnings.push(
+          `waypoint ${wp.order} at (${wp.cx}, ${wp.cy}) is walled in on all sides`,
+        );
       }
     }
   }
@@ -252,10 +254,7 @@ export class Grid {
       [0, 1],
       [0, -1],
     ];
-    return dirs.reduce(
-      (count, [dx, dy]) => count + (this.isWalkable(cx + dx, cy + dy) ? 1 : 0),
-      0,
-    );
+    return dirs.reduce((count, [dx, dy]) => count + (this.isWalkable(cx + dx, cy + dy) ? 1 : 0), 0);
   }
 }
 

@@ -166,7 +166,12 @@ export class Pathfinder {
     let anchor = 0;
 
     for (let i = 2; i < points.length; i += 1) {
-      const clear = grid.lineIsWalkable(points[anchor].x, points[anchor].y, points[i].x, points[i].y);
+      const clear = grid.lineIsWalkable(
+        points[anchor].x,
+        points[anchor].y,
+        points[i].x,
+        points[i].y,
+      );
 
       if (!clear) {
         out.push(points[i - 1]);

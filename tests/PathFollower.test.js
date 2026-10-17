@@ -67,7 +67,13 @@ describe('PathFollower', () => {
   it('starts a new path at its first node', () => {
     const follower = new PathFollower();
     const agent = new StubAgent(0, 0);
-    follower.setPath([{ x: 32, y: 0 }, { x: 64, y: 0 }], agent);
+    follower.setPath(
+      [
+        { x: 32, y: 0 },
+        { x: 64, y: 0 },
+      ],
+      agent,
+    );
 
     expect(follower.hasPath).toBe(true);
     expect(follower.currentNode).toEqual({ x: 32, y: 0 });
@@ -97,7 +103,14 @@ describe('PathFollower', () => {
   it('consumes nodes it is already standing on', () => {
     const follower = new PathFollower();
     const agent = new StubAgent(0, 0);
-    follower.setPath([{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 200, y: 0 }], agent);
+    follower.setPath(
+      [
+        { x: 0, y: 0 },
+        { x: 0, y: 0 },
+        { x: 200, y: 0 },
+      ],
+      agent,
+    );
 
     const status = follower.update(agent, DT, SPEED);
 
@@ -201,7 +214,13 @@ describe('PathFollower', () => {
   it('clear() drops the path and the stall clock', () => {
     const follower = new PathFollower();
     const agent = new StubAgent(0, 0);
-    follower.setPath([{ x: 500, y: 0 }, { x: 600, y: 0 }], agent);
+    follower.setPath(
+      [
+        { x: 500, y: 0 },
+        { x: 600, y: 0 },
+      ],
+      agent,
+    );
     follower.update(agent, DT, SPEED);
 
     follower.clear();
