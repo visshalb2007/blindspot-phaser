@@ -66,11 +66,15 @@ export default class GameScene extends Phaser.Scene {
     if (this._updateMission()) return;
 
     // Every guard senses the same player position for the frame, so two guards
-    // can never disagree about where the player was.
+    // can never disagree about where the player was. The noise is the same
+    // story: one circle around the player, whose radius is however much racket
+    // they are making - which is zero while standing still or sneaking, and so
+    // never heard at all.
     const target = this.player.position;
+    const noise = { x: target.x, y: target.y, radius: this.player.noiseRadius };
 
     for (const enemy of this.enemies) {
-      enemy.update(dt, target);
+      enemy.update(dt, target, noise);
     }
 
     this._updateHud();
@@ -404,6 +408,16 @@ export default class GameScene extends Phaser.Scene {
       g.strokeCircle(wp.x, wp.y, 11);
       g.lineBetween(wp.x - 7, wp.y, wp.x + 7, wp.y);
       g.lineBetween(wp.x, wp.y - 7, wp.x, wp.y + 7);
+    }
+
+    // What the guards can hear: one circle around the player, as wide as the
+    // racket they are making this frame. Not drawn at all while the player is
+    // still or sneaking, which is the whole answer.
+    if (this.player.noiseRadius > 0) {
+      const { x, y } = this.player.position;
+
+      g.lineStyle(1, 0xffd166, 0.55);
+      g.strokeCircle(x, y, this.player.noiseRadius);
     }
   }
 }
