@@ -4,9 +4,22 @@ import { CONFIG } from '../config.js';
 import { Grid } from '../world/Grid.js';
 import { LEVEL_ROWS } from '../world/LevelData.js';
 import { Mission } from '../world/Mission.js';
+import { guardPosts } from '../world/Roster.js';
+import { RunStats, browserStorage } from '../world/RunStats.js';
+import { Clock } from '../utils/Clock.js';
 import { clampDelta } from '../utils/Timer.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
+
+/**
+ * Where the guards are told the player is when nobody is playing.
+ *
+ * Far enough outside the level that no guard can see it, hear it or walk to it,
+ * which is exactly right: on the start page the heist has not started and there
+ * is nobody on the floor. The guards patrol with nothing to find, and the
+ * backdrop stays an honest run of the same code the game runs.
+ */
+const NOBODY = Object.freeze({ x: -1e6, y: -1e6 });
 
 /**
  * Owns everything that is on screen.
@@ -20,6 +33,16 @@ export default class GameScene extends Phaser.Scene {
     super('Game');
   }
 
+  /**
+   * @param {{shadow?: boolean}} [data] `shadow` runs the level with nobody
+   *   playing: the guards patrol and nothing else ever happens. It is the same
+   *   scene rather than a second one that draws a level, so the backdrop on the
+   *   start page cannot drift from the game it is standing behind.
+   */
+  init(data) {
+    this.shadow = Boolean(data?.shadow);
+  }
+
   create() {
     this.grid = new Grid(LEVEL_ROWS);
     for (const warning of this.grid.warnings) {
@@ -31,23 +54,34 @@ export default class GameScene extends Phaser.Scene {
     this.statusText = null;
 
     this.mission = new Mission({ chips: this.grid.chips, exit: this.grid.exit });
+    this.clock = new Clock({ running: !this.shadow });
+    this.stats = new RunStats({ storage: browserStorage() });
 
     this._drawFloor();
     this._buildWalls();
     this._drawMarkers();
     this._paintExit();
 
-    this.player = new Player(this, this.grid.spawn.x, this.grid.spawn.y);
-    this.physics.add.collider(this.player.sprite, this.walls);
+    if (!this.shadow) {
+      this.player = new Player(this, this.grid.spawn.x, this.grid.spawn.y);
+      this.physics.add.collider(this.player.sprite, this.walls);
+
+      // Counted now, at the beginning of the run rather than at the end of it:
+      // a run abandoned by closing the tab is still a run that was begun.
+      this.stats.startRun();
+    }
 
     this._spawnGuards();
-    this._buildHud();
-
     this.waypointDebug = this.add.graphics().setDepth(6);
     this._buildWaypointLabels();
 
-    this.input.keyboard.on('keydown-F1', () => this.toggleDebug());
-    this.input.keyboard.on('keydown-R', () => this.restartLevel());
+    if (!this.shadow) {
+      this._buildHud();
+
+      this.input.keyboard.on('keydown-F1', () => this.toggleDebug());
+      this.input.keyboard.on('keydown-R', () => this.restartLevel());
+      this.input.keyboard.on('keydown-ESC', () => this._exitToDashboard());
+    }
 
     this.cameras.main.setBounds(0, 0, CONFIG.map.widthPx, CONFIG.map.heightPx);
   }
@@ -55,10 +89,17 @@ export default class GameScene extends Phaser.Scene {
   update(_time, delta) {
     const dt = clampDelta(delta);
 
+    if (this.shadow) {
+      this._patrolBehindTheStartPage(dt);
+      return;
+    }
+
     // Being caught or walking out with the loot is a full stop: the guards hold
-    // the pose they left you in and R is the only way out of it.
+    // the pose they left you in and R is the only way out of it. The clock is
+    // stopped with them, so the time on the banner is the time the run took.
     if (this.caught || this.mission.won) return;
 
+    this.clock.tick(dt);
     this.player.update(dt);
 
     // Chips and the door come first: a chip is taken on the frame the player
@@ -80,6 +121,20 @@ export default class GameScene extends Phaser.Scene {
     this._updateHud();
 
     if (this.debugOn) this._drawWaypointDebug();
+  }
+
+  /**
+   * The backdrop loop for the start page: the same guards, on the same routes,
+   * with nobody to find.
+   *
+   * No noise is passed along with the target, so a patrol behind the start page
+   * cannot hear anything either - there is no player on the level yet to make
+   * any sound, and every guard should behave as if that is true.
+   */
+  _patrolBehindTheStartPage(dt) {
+    for (const enemy of this.enemies) {
+      enemy.update(dt, NOBODY, null);
+    }
   }
 
   // -------------------------------------------------------------------- world
@@ -159,42 +214,25 @@ export default class GameScene extends Phaser.Scene {
    * Guards start spread evenly around the shared waypoint loop, each facing the
    * waypoint it is about to walk to.
    *
-   * Spawning a guard *on* its post is deliberate: the first frame then counts
-   * as an arrival, so the guard pauses and scans before setting off, which is
-   * exactly how it behaves after every other waypoint.
+   * The posts come from `world/Roster.js`, which is the same rule the start page
+   * lists its roster from - so the guard count on the start page is the guard
+   * count here, by construction rather than by coincidence.
    */
   _spawnGuards() {
-    this.enemies = [];
-
-    const waypoints = this.grid.waypoints;
-    const wanted = Math.max(1, CONFIG.enemy.count);
-    const count = Math.max(1, Math.min(wanted, waypoints.length));
-
-    for (let i = 0; i < count; i += 1) {
-      // Evenly spaced posts, computed by ratio rather than by a stride so that
-      // three guards around four waypoints do not land two of them together.
-      const startIndex = Math.floor((i * waypoints.length) / count);
-
-      // A level with fewer than two waypoints has no loop to share: fall back
-      // to the player's spawn tile, which is guaranteed walkable, and let the
-      // brain's look-around scan stand in for the missing route.
-      const post = waypoints[startIndex] ?? this.grid.spawn;
-      const next = waypoints[(startIndex + 1) % waypoints.length];
-
-      this.enemies.push(
+    this.enemies = guardPosts(this.grid).map(
+      (post) =>
         new Enemy(this, {
-          name: `guard-${i + 1}`,
+          name: post.name,
           x: post.x,
           y: post.y,
-          heading: next ? Math.atan2(next.y - post.y, next.x - post.x) : 0,
-          waypoints,
-          startIndex,
+          heading: post.heading,
+          waypoints: this.grid.waypoints,
+          startIndex: post.startIndex,
           grid: this.grid,
           // The brain does not know what a hit means; the scene does.
           onHit: () => this._onPlayerHit(),
         }),
-      );
-    }
+    );
   }
 
   /**
@@ -251,8 +289,17 @@ export default class GameScene extends Phaser.Scene {
 
   _winMission() {
     this.player.sprite.setVelocity(0, 0);
+
+    // The clock stops with the run, and the time is what gets remembered: a
+    // best time is only ever a time somebody actually finished in.
+    this.clock.stop();
+    this.stats.recordWin(this.clock.seconds, this.mission.collected);
+
     this._updateHud();
-    this._showStatus('MISSION COMPLETE - press R for another go', '#88ff99');
+    this._showStatus(
+      `MISSION COMPLETE in ${this.clock.formatted} - press R for another go`,
+      '#88ff99',
+    );
   }
 
   /**
@@ -267,7 +314,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.statusText = this.add
       .text(CONFIG.map.widthPx / 2, CONFIG.map.heightPx / 2, message, {
-        fontFamily: 'ui-monospace, monospace',
+        fontFamily: CONFIG.ui.font,
         fontSize: '18px',
         color,
         backgroundColor: '#000000cc',
@@ -287,8 +334,14 @@ export default class GameScene extends Phaser.Scene {
   _catchPlayer() {
     this.caught = true;
     this.player.sprite.setVelocity(0, 0);
+
+    // A capture is never a personal best, however quick it was: only escapes
+    // set a time, so this is recorded as an ending and nothing more.
+    this.clock.stop();
+    this.stats.recordCatch(this.clock.seconds, this.mission.collected);
+
     this._updateHud();
-    this._showStatus('CAUGHT - press R to try again', '#ff8888');
+    this._showStatus(`CAUGHT after ${this.clock.formatted} - press R to try again`, '#ff8888');
   }
 
   // ------------------------------------------------------------------- debug
@@ -301,6 +354,12 @@ export default class GameScene extends Phaser.Scene {
    * debug toggle, whereas a reset is instant and leaves the world alone.
    */
   restartLevel() {
+    // A restart is a fresh run, not a continuation: the clock goes back to zero
+    // and it counts as another attempt, which is what makes the record on the
+    // start page read as a history rather than as a best.
+    this.clock.reset().start();
+    this.stats.startRun();
+
     this.player.reset();
 
     for (const enemy of this.enemies) {
@@ -323,18 +382,31 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Three lines of text: health, the objective, and how close each guard is to
-   * committing.
+   * Back to the start page, abandoning the run.
+   *
+   * Nothing is recorded for an abandoned run beyond the attempt that was
+   * counted when it began: it is not an escape and it is not a capture, so it
+   * does not get to look like either on the record.
+   */
+  _exitToDashboard() {
+    this.scene.start('Dashboard');
+  }
+
+  /**
+   * Four things on one line: how long the run has taken, health, the objective,
+   * and how close each guard is to committing.
    *
    * The alertness meter is the one piece of state with no on-screen tell of its
    * own - the guards' labels already carry their state, and a guard's colour
    * carries how dangerous it is - so this is where a meter that is quietly
-   * filling can actually be watched.
+   * filling can actually be watched. The clock sits on this line rather than in
+   * a corner of its own because it is the run's score, and it has to be read at
+   * the same glance as the health it is racing.
    */
   _buildHud() {
     this.hud = this.add
       .text(8, 6, '', {
-        fontFamily: 'ui-monospace, monospace',
+        fontFamily: CONFIG.ui.font,
         fontSize: '12px',
         color: '#c8d4ff',
       })
@@ -349,7 +421,9 @@ export default class GameScene extends Phaser.Scene {
 
     const door = this.mission.isUnlocked ? 'OPEN' : 'SHUT';
     const chips = `${this.mission.collected}/${this.mission.total}`;
-    const lines = [`HEALTH ${pips}    CHIPS ${chips}    EXIT ${door}`];
+    const lines = [
+      `TIME ${this.clock.formatted}    HEALTH ${pips}    CHIPS ${chips}    EXIT ${door}`,
+    ];
 
     for (const enemy of this.enemies) {
       const brain = enemy.brain;
@@ -370,7 +444,7 @@ export default class GameScene extends Phaser.Scene {
     this.waypointLabels = this.grid.waypoints.map((wp) =>
       this.add
         .text(wp.x + 12, wp.y - 15, String(wp.order), {
-          fontFamily: 'ui-monospace, monospace',
+          fontFamily: CONFIG.ui.font,
           fontSize: '11px',
           color: '#66ccff',
         })
