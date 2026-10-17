@@ -79,9 +79,17 @@ export class Player {
     const input = this.readInput();
     const moving = input.x !== 0 || input.y !== 0;
 
-    this.sprinting = this.stamina.update(dt, input.wantsSprint, moving);
+    // Sneaking always wins over sprinting, and sprinting while sneaking would
+    // be a contradiction, so the flag is cleared rather than combined.
+    this.sneaking = input.wantsSneak;
+    const wantsSprint = input.wantsSprint && !this.sneaking;
+    this.sprinting = this.stamina.update(dt, wantsSprint, moving) && !this.sneaking;
 
-    const speed = this.sprinting ? CONFIG.player.sprint : CONFIG.player.speed;
+    const speed = this.sneaking
+      ? CONFIG.player.sneak
+      : this.sprinting
+        ? CONFIG.player.sprint
+        : CONFIG.player.speed;
 
     // Normalise before scaling: holding two directions must not make the
     // player faster than holding one.
@@ -91,6 +99,21 @@ export class Player {
     if (moving) {
       this.sprite.setRotation(Math.atan2(dir.y, dir.x));
     }
+
+    this.noiseRadius = moving ? this._currentNoiseRadius() : 0;
+  }
+
+  /**
+   * How far the player can currently be heard, in pixels.
+   *
+   * Sneaking is silent (0), so a guard has to be looking at you; sprinting
+   * carries nearly across a room. This is recomputed every frame rather than
+   * on key change so it can never go stale after a pause or a restart.
+   */
+  _currentNoiseRadius() {
+    if (this.sneaking) return CONFIG.player.noise.sneak;
+    if (this.sprinting) return CONFIG.player.noise.sprint;
+    return CONFIG.player.noise.walk;
   }
 
   /** Puts the player back on the spawn tile with a full stamina bar. */
