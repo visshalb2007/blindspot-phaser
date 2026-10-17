@@ -8,16 +8,16 @@ post. Take the data chips, reach the door, and do not get caught. Built with
 Phaser 3 and Vite in plain JavaScript, with every AI system written from scratch
 and unit tested.
 
-> Status: Phases 0-10. The game opens on a start page: a briefing, the guards on
+> Status: Phases 0-11. The game opens on a start page: a briefing, the guards on
 > shift, and a record of your runs, with the level itself patrolling behind it in
-> shadow mode, nobody at the controls. Two chips and a door that stays shut until
-> both are in hand. Guards patrol, check range, cone *and* a clear line before
-> they believe their eyes, and listen for the racket you make around corners; a
-> sighting only commits them once a certainty meter fills, and noise fills that
-> same meter but can never finish the job on its own - glance, look closer, hunt,
-> search where they last had you, go back to the post. A landed blow costs a
-> point of health; three of them and the run is over. Every run is timed, and
-> both ways it can end are remembered.
+> shadow mode, nobody at the controls. Five levels of rising difficulty, and the
+> one you pick is the one on the board. Guards patrol, check range, cone *and* a
+> clear line before they believe their eyes, and listen for the racket you make
+> around corners; a sighting only commits them once a certainty meter fills, and
+> noise fills that same meter but can never finish the job on its own - glance,
+> look closer, hunt, search where they last had you, go back to the post. A
+> landed blow costs a point of health; three of them and the run is over. Every
+> run is timed, and both ways it can end are remembered.
 
 ## Prerequisites
 
@@ -87,13 +87,44 @@ failure rather than a stutter.
 | `R` | Restart the level |
 | `Esc` | Leave the run and go back to the start page |
 
-On the start page, `Space`, `Enter` or a click starts a run.
+On the start page, `Space`, `Enter` or a click starts a run on the level on the
+board. The number keys `1`-`5` pick a level outright, and `Left` / `Right` walk
+up and down the ladder.
+
+## The five levels
+
+Five maps, in the order they get harder. The ladder is on the start page: pick a
+number and the briefing, the roster and the level patrolling behind the page all
+follow the selection.
+
+| # | Level | Guards | Chips | Posts | What makes it hard |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Night Shift | 2 | 2 | 4 | Small rooms and short sightlines: somewhere to break a view every few steps. |
+| 2 | Loading Bay | 3 | 3 | 6 | One open hall with pillars: nothing to hide behind between them. |
+| 3 | Cold Storage | 3 | 3 | 5 | Six straight aisles with no side doors: a guard at one end sees all of it. |
+| 4 | Server Floor | 4 | 4 | 6 | Three long lanes joined by two doorways each: crossing one is a commitment. |
+| 5 | The Vault | 5 | 4 | 8 | Wide open, five guards, four chips, four pillars and nowhere to go. |
+
+Difficulty here is geometry, not a hidden multiplier. There is no "hard mode"
+number in the AI: the later levels are harder because they are more open (long
+sightlines and no place to break one), bigger (more ground to cover, more time in
+the open), tighter (one-wide aisles you cannot dodge in), and busier (more guards
+walking a longer loop). Per-level sight ranges or reaction speeds would mean
+threading a config through every AI module; the map is the stronger knob, and
+`src/world/Levels.js` is where the ladder is written down.
+
+Level 1 is the map every earlier phase was built and tuned against, and it is
+left exactly as it was - same rows, same two guards - so all the tests and
+behaviour written before there was a ladder still describe the level they always
+did. `tests/Levels.test.js` holds all five to what a level has to be: the size
+the game draws, no parser warnings, a spawn, a door and chips, every chip and the
+door reachable on foot from the spawn, and a patrol loop the guards can walk.
 
 ## The start page
 
-The game opens on a dashboard rather than in a run. Four panels say what the job
-is, which keys do it, who is on shift and how they think, and what you have done
-so far.
+The game opens on a dashboard rather than in a run. Five panels say what the job
+is, which keys do it, who is on shift, how they think, and what you have done so
+far.
 
 The numbers on it are the real ones, and that is the whole point of it being a
 module rather than a wall of text calls. The chip count is read off the level,
@@ -104,12 +135,13 @@ describes the new one - `tests/Briefing.test.js` asserts exactly that, because a
 dashboard that quietly lies is worse than no dashboard.
 
 The level behind it is live: the same `Game` scene, in a *shadow* mode where the
-walls, the chips, the door and both guards are all there and the guards walk
-their loop, with no player in the level, no HUD, no input and no way for anything
-to be caught. They are handed a target nobody is standing at, so they patrol with
+walls, the chips, the door and the guards are all there and the guards walk their
+loop, with no player in the level, no HUD, no input and no way for anything to be
+caught. They are handed a target nobody is standing at, so they patrol with
 nothing to find - which is the honest way to show a level nobody has started, and
 makes the backdrop a smoke test: if the AI stops working, the start page stops
-moving.
+moving. It is the same scene and the same level data as the run that follows, so
+a backdrop that disagrees with the game is not a state that can be reached.
 
 Your record is kept in `localStorage` under one versioned key, by
 `world/RunStats.js`, which is handed its storage rather than reaching for the
@@ -131,8 +163,9 @@ Get every chip, then leave through the door.
   with a pulse when the last chip turns it on.
 - That is the whole win condition, and it lives in `src/world/Mission.js`, which
   has no Phaser import. `tests/Mission.test.js` asserts that the shipped level
-  can be finished, so a future map edit that walls off a chip or the door fails
-  a test rather than making the game quietly impossible.
+  can be finished and `tests/Levels.test.js` asserts it of all five, so a future
+  map edit that walls off a chip or the door fails a test rather than making the
+  game quietly impossible.
 - Getting caught is the other full stop. Both ends of a run hold the world still
   and wait for `R`, and both of them are written to the record.
 - Runs are timed. The clock is on the HUD line, it stops with the run so the time
@@ -206,7 +239,10 @@ the game actually computes it, which is not there at all while sneaking.
 
 ## What works today
 
-- Two guards patrol the shared waypoint loop, pausing and scanning at each post.
+- Five levels of rising difficulty, picked from the start page; the level, its
+  chips, its guards and its patrol posts all come from the level's own data, and
+  guards stand at the posts it says they do.
+- Guards patrol the shared waypoint loop, pausing and scanning at each post.
 - They see the player by range, field of view **and** a clear line of sight, so
   walls and corners hide you, and their certainty builds over time instead of
   switching on the first hint of a sighting.
@@ -221,9 +257,11 @@ the game actually computes it, which is not there at all while sneaking.
   caught: the level stops until `R`.
 - The player walks, sprints on a stamina bar and sneaks silently.
 - Two chips and a door make up the objective, so there is now something to win
-  as well as something to lose.
+  as well as something to lose. Later levels have more of each.
 - A start page: the briefing, the guards on shift, how they think, and your own
   record, with the level patrolling behind it and nobody at the controls.
+- Five levels of rising difficulty, and the start page's ladder picks which one
+  the backdrop and the next run both use.
 - Every run is timed, and the record counts runs begun, escapes, captures, chips
   lifted and your best time - kept between sessions.
 - A HUD shows the run clock, health, the chip count and whether the door is open,
@@ -236,9 +274,15 @@ Known gaps, in the order they are planned:
   handled, and guards cannot tell each other anything, so there is no way to
   throw a sound and draw a patrol off its route: everything a guard hears, it
   hears from you.
-- The level and its difficulty are fixed: one map, two chips, two guards, one
-  speed for the lot of it. Runs are timed and the record is kept, but nothing
-  scores a run beyond how quickly you got out.
+- **Difficulty is the map, not the guards.** The five levels differ in layout,
+  size, chip count and guard count; every guard on every level still sees 180px,
+  reacts at the same speed and searches for the same 4 seconds. Per-level sight
+  ranges and reaction times would mean threading a config through every AI
+  module, which is a larger change than the ladder needed. Picking a level is
+  also free - nothing unlocks, and the record is one record for all five rather
+  than one per level, so beating level 5 does not say so anywhere.
+- Runs are timed and the record is kept, but nothing scores a run beyond how
+  quickly you got out.
 - The record is per-browser and anonymous. It lives in `localStorage`, so
   clearing site data clears it, and there is nowhere for it to go but here.
 - A guard that searches always runs its full time budget in one spot, rather
@@ -257,7 +301,7 @@ src/
   ai/        pure logic: StateMachine, states, Perception, Hearing,
              Alertness, Pathfinder, PathFollower, PriorityQueue
                                                        (no Phaser import)
-  world/     pure logic: Grid, LevelData, LineOfSight, Mission,
+  world/     pure logic: Grid, LevelData, Levels, LineOfSight, Mission,
              Roster, RunStats, Briefing, geometry        (no Phaser import)
   entities/  thin Phaser wrappers: Player, Enemy
   scenes/    thin Phaser wrappers: Boot, Dashboard, Game
