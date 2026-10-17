@@ -2,7 +2,7 @@ import { CONFIG } from '../config.js';
 import { distance } from '../world/geometry.js';
 
 /** What a guard reports when there is nothing to hear at all. */
-const SILENT = Object.freeze({
+export const NOTHING_HEARD = Object.freeze({
   heard: false,
   distance: Infinity,
   loudness: 0,
@@ -54,10 +54,10 @@ export class Hearing {
   listen(listener, noise) {
     // Sneaking is a radius of zero, so a silent player is never heard at all
     // rather than heard for nothing.
-    if (!noise || !(noise.radius > 0)) return { ...SILENT };
+    if (!noise || !(noise.radius > 0)) return { ...NOTHING_HEARD };
 
     const reach = distance(listener.x, listener.y, noise.x, noise.y);
-    if (reach >= noise.radius) return { ...SILENT, distance: reach };
+    if (reach >= noise.radius) return { ...NOTHING_HEARD, distance: reach };
 
     const throughWall = this.blocked(listener, noise);
     const loudness = (1 - reach / noise.radius) * (throughWall ? this.muffled : 1);

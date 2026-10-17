@@ -54,11 +54,22 @@ export class Alertness {
   /**
    * @param {number} dt seconds
    * @param {boolean} visible whether the guard can see the player this frame
+   * @param {number} heard the rate the player is being heard at, in certainty
+   *   per second, or 0 for silence
    * @returns {number} the meter after the step
    */
-  update(dt, visible) {
-    const change = (visible ? this.gain : -this.decay) * dt;
-    this.value = clamp(this.value + change, 0, CEILING);
+  update(dt, visible, heard = 0) {
+    // A sighting outweighs any amount of noise and the two do not stack: being
+    // seen is being seen. A noise worth hearing holds the drain off while it
+    // lasts, which is the whole of what sound does to a guard's certainty.
+    let rate = -this.decay;
+    if (visible) {
+      rate = this.gain;
+    } else if (heard > 0) {
+      rate = heard;
+    }
+
+    this.value = clamp(this.value + rate * dt, 0, CEILING);
     return this.value;
   }
 

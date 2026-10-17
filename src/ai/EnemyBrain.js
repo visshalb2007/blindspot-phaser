@@ -3,6 +3,7 @@ import { Timer } from '../utils/Timer.js';
 import { degToRad } from '../world/geometry.js';
 import { LineOfSight } from '../world/LineOfSight.js';
 import { Alertness } from './Alertness.js';
+import { Hearing, NOTHING_HEARD } from './Hearing.js';
 import { Pathfinder } from './Pathfinder.js';
 import { PathFollower } from './PathFollower.js';
 import { Perception } from './Perception.js';
@@ -70,12 +71,24 @@ export class EnemyBrain {
       canSee: this.lineOfSight ? (self, target) => this._traceSight(self, target) : null,
     });
 
+    // Hearing is the other half of noticing. It borrows sight's wall test, but
+    // the answer means far less: a noise is a place, not a person, and it can
+    // never make a guard certain enough to chase.
+    this.hearing = new Hearing(
+      this.lineOfSight ? { blocked: (from, to) => !this.lineOfSight.canSee(from, to) } : {},
+    );
+    this.heard = NOTHING_HEARD;
+
     // Awareness: the certainty meter, how long it has been since the last
     // sighting, and the timers behind the suspicious, search and attack states.
     // `timeSinceSeen` starts at Infinity because "never seen" must not read as
     // "seen a moment ago" to the rule that ends a chase.
     this.alertness = new Alertness();
     this.timeSinceSeen = Infinity;
+
+    // A noise worth acting on, which is not the same as a sighting: `hunch` is
+    // a place to go and look that nothing has taken the guard to yet.
+    this.hunchPending = false;
 
     this.suspicionPause = new Timer(CONFIG.enemy.alertPause);
     this.searchTimer = new Timer(CONFIG.enemy.searchDuration);
@@ -139,11 +152,42 @@ export class EnemyBrain {
 
   // -------------------------------------------------------------- per frame
 
-  update(dt, target) {
+  update(dt, target, noise = null) {
+    // Hearing first, so what the guard noticed this frame is already in the
+    // meter - and in `lastKnownPos` - before the states decide what to do about
+    // it. A sighting then overwrites whatever the noise had to say, which is
+    // the right way round: eyes beat ears.
+    this.hearNoise(noise);
     this.senseTarget(target ?? this.target);
     this._updateAwareness(dt);
     this.fsm.update(dt);
     this._integrate(dt);
+  }
+
+  /**
+   * Something made a noise.
+   *
+   * A noise tells a guard where the player is the same way a sighting does, and
+   * hands the certainty meter a rate to fill at. What it cannot do is make the
+   * guard certain: `isAlarmed` is only ever read next to a sighting, so walking
+   * loudly behind a guard gets you investigated rather than run down.
+   *
+   * It also leaves a *hunch* behind - somewhere worth walking to - which is
+   * what a guard acts on when the doubt drains away without a sighting and it
+   * goes to look instead of going home.
+   *
+   * @returns {{heard: boolean, distance: number, loudness: number, rate: number, muffled: boolean}}
+   *   the frame's hearing report, kept on `this.heard`.
+   */
+  hearNoise(noise) {
+    this.heard = this.hearing.listen(this, noise);
+
+    if (this.heard.heard) {
+      this.lastKnownPos = { x: noise.x, y: noise.y };
+      this.hunchPending = true;
+    }
+
+    return this.heard;
   }
 
   senseTarget(target) {
@@ -152,6 +196,10 @@ export class EnemyBrain {
 
     if (this.sight.seen) {
       this.lastKnownPos = { x: target.x, y: target.y };
+
+      // A sighting is better information than any noise, so it replaces the
+      // hunch rather than joining it.
+      this.hunchPending = false;
     }
 
     return this.sight;
@@ -159,6 +207,16 @@ export class EnemyBrain {
 
   canSeeTarget() {
     return this.sight.seen;
+  }
+
+  /** Whether anything worth reacting to reached the guard this frame. */
+  get heardSomething() {
+    return this.heard.heard;
+  }
+
+  /** A noise the guard has taken in but not yet been to look at. */
+  get hasHunch() {
+    return this.hunchPending;
   }
 
   /**
@@ -169,7 +227,10 @@ export class EnemyBrain {
    * with what `Perception` just reported.
    */
   _updateAwareness(dt) {
-    this.alertness.update(dt, this.sight.seen);
+    // A sighting outweighs any amount of noise, but a noise holds the drain off
+    // for as long as it lasts - which is what makes walking past a guard's back
+    // a bad idea rather than a free pass.
+    this.alertness.update(dt, this.sight.seen, this.heard.rate);
 
     if (this.sight.seen) {
       this.timeSinceSeen = 0;
@@ -481,6 +542,9 @@ export class EnemyBrain {
     this.searchArrived = false;
     this.waiting = false;
     this.waitTimer.reset();
+
+    // Whatever the guard was put on to, it is going there now.
+    this.hunchPending = false;
     this._clearPath();
   }
 
@@ -646,6 +710,8 @@ export class EnemyBrain {
 
     this.alertness.reset();
     this.timeSinceSeen = Infinity;
+    this.heard = NOTHING_HEARD;
+    this.hunchPending = false;
     this.suspicionPause.reset();
     this.searchTimer.reset();
     this.searchTarget = null;

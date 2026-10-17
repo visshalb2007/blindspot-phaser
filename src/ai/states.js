@@ -72,13 +72,15 @@ export function createGuardStates() {
       update(brain, dt, fsm) {
         brain.patrolStep(dt);
 
-        if (!brain.canSeeTarget()) return;
+        // Seeing is not the same as knowing what to do about them: the meter
+        // has to fill first, and because it drains slower than it fills, a
+        // guard that keeps catching glimpses escalates instead of flickering
+        // between calm and furious. A noise fills it just as well, which is how
+        // a guard ends up investigating something it never saw.
+        if (!brain.canSeeTarget() && !brain.heardSomething) return;
 
-        // Seeing the player is not the same as knowing what to do about them.
-        // The meter has to fill first - and because it drains slower than it
-        // fills, a guard that keeps catching glimpses escalates instead of
-        // flickering between calm and furious.
-        if (brain.alertness.isAlarmed) {
+        // ...but only a sighting is enough to commit to a chase.
+        if (brain.canSeeTarget() && brain.alertness.isAlarmed) {
           fsm.change(STATE.CHASE);
         } else if (brain.alertness.isSuspicious) {
           fsm.change(STATE.SUSPICIOUS);
@@ -99,10 +101,12 @@ export function createGuardStates() {
           return;
         }
 
-        // Nothing came of it. The doubt drains away and the guard resumes the
-        // route it was on, from the post it had not yet reached.
+        // Nothing came of it. The doubt drains away: a guard with a noise it has
+        // not been to look at yet goes and looks, and only a guard with nothing
+        // left to check resumes the route it was on. This is the one way into a
+        // search that does not start with a chase.
         if (!brain.alertness.isSuspicious) {
-          fsm.change(STATE.PATROL);
+          fsm.change(brain.hasHunch ? STATE.SEARCH : STATE.PATROL);
         }
       },
     },
@@ -196,6 +200,14 @@ export function createGuardStates() {
         // place a sighting is a real one rather than a glance through a wall.
         if (brain.canSeeTarget()) {
           fsm.change(STATE.CHASE);
+          return;
+        }
+
+        // A noise close enough to make it doubt stops the trip home and turns
+        // it into a look. Walking on past a sprint two tiles away would read as
+        // the guard being deaf.
+        if (brain.heardSomething && brain.alertness.isSuspicious) {
+          fsm.change(STATE.SUSPICIOUS);
           return;
         }
 

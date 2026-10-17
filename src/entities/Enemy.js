@@ -67,8 +67,8 @@ export class Enemy {
     this.icon.setText(iconFor(state));
   }
 
-  update(dt, target) {
-    this.brain.update(dt, target);
+  update(dt, target, noise = null) {
+    this.brain.update(dt, target, noise);
 
     this.sprite.setPosition(this.brain.x, this.brain.y);
     this.sprite.setRotation(this.brain.heading);
