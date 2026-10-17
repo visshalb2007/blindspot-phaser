@@ -1,4 +1,5 @@
 # Night Shift Heist
+<img width="1263" height="906" alt="image" src="https://github.com/user-attachments/assets/66b80b81-38bd-4e12-b472-3124c1ddc081" />
 
 A top-down stealth game where the guards are the point: they patrol a loop,
 notice you through a range/cone/line-of-sight check, hear you through the wall
