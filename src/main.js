@@ -35,4 +35,10 @@ const config = {
 
 const game = new Phaser.Game(config);
 
+/**
+ * Exposed deliberately: the browser console can poke at a live scene, and the
+ * automated smoke check reads the active scene list from here.
+ */
+globalThis.__game = game;
+
 export default game;

@@ -31,7 +31,7 @@ export default class BootScene extends Phaser.Scene {
     this._floor(g);
     this._wall(g);
     this._actor(g, 'player', CONFIG.player.radius);
-    this._actor(g, 'enemy', CONFIG.player.radius);
+    this._actor(g, 'enemy', CONFIG.enemy.radius);
     this._chip(g);
     this._exit(g);
 
