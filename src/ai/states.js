@@ -161,6 +161,12 @@ export function createGuardStates() {
       update(brain, dt, fsm) {
         brain.attackStep(dt);
 
+        // A swing is committed to. The guard comes out of it when the player is
+        // genuinely gone for a whole second, or backs off while staying in
+        // sight - never because they ducked out of view for a frame. Leaving on
+        // a single missing frame made the guard drop out of the attack and
+        // swing again on a 0.4s cycle whenever the player hovered on the edge
+        // of cover.
         if (brain.lostSightFor(CONFIG.enemy.losLostTime)) {
           fsm.change(STATE.SEARCH);
           return;
@@ -169,7 +175,7 @@ export function createGuardStates() {
         // The exit radius is deliberately wider than the entry radius, so a
         // player hovering on the boundary cannot make the guard swing and stop
         // on alternate frames.
-        if (brain.sight.distance > CONFIG.enemy.attackExit) {
+        if (brain.canSeeTarget() && brain.sight.distance > CONFIG.enemy.attackExit) {
           fsm.change(STATE.CHASE);
         }
       },

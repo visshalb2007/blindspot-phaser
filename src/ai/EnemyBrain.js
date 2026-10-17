@@ -218,6 +218,40 @@ export class EnemyBrain {
   }
 
   /**
+   * Moves toward a point, aiming at the point itself whenever the straight line
+   * to it is clear, and planning a route when it is not.
+   *
+   * Routes are expressed as tile centres, which is right for a patrol post and
+   * wrong for a person: sending the player's exact position through the
+   * pathfinder aims at the middle of the tile they are standing in, up to half
+   * a tile away. A guard closing on a stationary player would then stop beside
+   * them, facing past them, and lose the very target it was walking at.
+   *
+   * @returns {boolean} whether the guard has arrived, within one stride
+   */
+  approach(target, speed, dt) {
+    const clearLine = this.lineOfSight ? this.lineOfSight.canSee(this, target) : false;
+
+    if (!clearLine) return this.navigateTo(target, speed, dt);
+
+    this._clearPath();
+
+    const reach = Math.hypot(target.x - this.x, target.y - this.y);
+    const stride = speed * dt;
+
+    // Stop inside the last stride, rather than walking through the target and
+    // turning round to face it again on the next frame.
+    if (reach <= stride) {
+      this.velocity = { x: 0, y: 0 };
+      if (reach > 1e-6) this.heading = Math.atan2(target.y - this.y, target.x - this.x);
+      return true;
+    }
+
+    this.steerTo(target, speed);
+    return false;
+  }
+
+  /**
    * Moves by velocity x dt, refusing to enter a solid tile.
    *
    * If the full step is blocked it retries on each axis alone, so the guard
@@ -364,7 +398,7 @@ export class EnemyBrain {
     // while not. Chasing a stale position is what stops a guard ploughing
     // into the wall the player just ran behind.
     const target = this.canSeeTarget() ? this.target : (this.lastKnownPos ?? this.target);
-    this.navigateTo(target, CONFIG.enemy.chaseSpeed, dt);
+    this.approach(target, CONFIG.enemy.chaseSpeed, dt);
   }
 
   // ----------------------------------------------------------------- return
@@ -420,14 +454,19 @@ export class EnemyBrain {
   suspiciousStep(dt) {
     this.velocity = { x: 0, y: 0 };
 
-    // Nothing at all for `alertPause`, then a cautious walk toward whatever it
-    // saw - the player while they stay visible, and the place they were seen
-    // once they do not. It is slower than a chasing guard on purpose: suspicion
-    // is a puzzle to walk away from, not a threat to outrun.
-    if (this.suspicionPause.tick(dt)) {
-      const where = this.canSeeTarget() ? this.target : (this.lastKnownPos ?? this.position);
-      this.navigateTo(where, CONFIG.enemy.patrolSpeed, dt);
-    }
+    // Nothing at all for `alertPause`. `done` rather than `tick`'s return
+    // value: the beat is a state to be past, not a single frame to catch, and
+    // reading the one-shot return here would let the guard creep for exactly
+    // one frame and then stand there.
+    this.suspicionPause.tick(dt);
+    if (!this.suspicionPause.done) return;
+
+    // Then a cautious walk toward whatever it saw - the player while they stay
+    // visible, and the place they were seen once they do not. Slower than a
+    // chasing guard on purpose: suspicion is a puzzle to walk away from, not a
+    // threat to outrun.
+    const where = this.canSeeTarget() ? this.target : (this.lastKnownPos ?? this.position);
+    this.approach(where, CONFIG.enemy.patrolSpeed, dt);
   }
 
   // --------------------------------------------------------------- search
@@ -448,7 +487,7 @@ export class EnemyBrain {
   searchStep(dt) {
     this.searchTimer.tick(dt);
 
-    if (!this.navigateTo(this.searchTarget, CONFIG.enemy.searchSpeed, dt)) return;
+    if (!this.approach(this.searchTarget, CONFIG.enemy.searchSpeed, dt)) return;
 
     this.velocity = { x: 0, y: 0 };
 
