@@ -1,4 +1,5 @@
 import { CONFIG } from '../config.js';
+import { normalize } from '../world/geometry.js';
 
 /**
  * Thin Phaser wrapper around the player sprite.
@@ -76,9 +77,14 @@ export class Player {
     const input = this.readInput();
     const speed = CONFIG.player.speed;
 
-    // Raw input for now, which makes a diagonal up to ~41% faster than a
-    // straight line. The next commit normalises it.
-    this.sprite.setVelocity(input.x * speed, input.y * speed);
+    // Normalise before scaling: holding two directions must not make the
+    // player faster than holding one.
+    const dir = normalize(input.x, input.y);
+    this.sprite.setVelocity(dir.x * speed, dir.y * speed);
+
+    if (input.x !== 0 || input.y !== 0) {
+      this.sprite.setRotation(Math.atan2(dir.y, dir.x));
+    }
   }
 
   /** Puts the player back on the spawn tile with a full stamina bar. */
