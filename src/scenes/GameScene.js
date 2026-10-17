@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config.js';
 import { Grid } from '../world/Grid.js';
 import { LEVEL_ROWS } from '../world/LevelData.js';
+import { clampDelta } from '../utils/Timer.js';
 import { Player } from '../entities/Player.js';
 
 /**
@@ -68,7 +69,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(_time, delta) {
-    const dt = Math.min(delta, CONFIG.maxDelta) / 1000;
-    this.player.update(dt);
+    this.player.update(clampDelta(delta));
   }
 }
