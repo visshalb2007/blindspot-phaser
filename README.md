@@ -6,10 +6,9 @@ path, lose you, search the last place they saw you, and walk back to their
 post. Built with Phaser 3 and Vite in plain JavaScript, with every AI system
 written from scratch and unit tested.
 
-> Status: Phase 4 (the MVP) - tagged `v0.1-mvp`. Guards patrol the level,
-> notice the player, chase along an A\* path and go back to their post; you can
-> walk, sprint and sneak around them. Line of sight, search behaviour, the
-> objective and the alarm come next.
+> Status: Phase 5 (line of sight). Guards patrol, check range, cone *and* a clear
+> line before they believe their eyes, chase along an A\* route and go back to
+> their post. Suspicion, search and the objective come next.
 
 ## Prerequisites
 
@@ -55,32 +54,39 @@ Every guard runs the same loop, and each stage is a separate testable module:
 
 ```
 Perception  ->  FSM  ->  Pathfinder  ->  PathFollower  ->  Enemy
-(what can it   (what    (where does    (which way now?)  (position +
- see?)          now?)    it go?)                          visuals)
+(range, cone,   (what    (where does    (which way now?)  (position +
+ clear line)     now?)    it go?)                          visuals)
 ```
+
+`Perception` only reports a sighting when all three of its tests agree: close
+enough, inside the guard's field of view, and a clear line across the grid. That
+last one is `world/LineOfSight.js`, a Bresenham raycast that also reports which
+wall cut the view.
 
 The guard owns its own position and integrates its own movement, so a test can
 step a whole patrol headlessly and assert on the exact state sequence. Nothing
 in `src/ai` or `src/world` imports Phaser.
 
-`F1` draws what the guard believes: the vision cone and its range, the arrival
+`F1` draws what the guard believes: the vision cone and its range, the sight ray
+this frame (green clear, red with a cross where a wall cuts it), the arrival
 radius, the A\* route it is walking and every patrol waypoint with its order.
 
 ## What works today
 
 - Two guards patrol the shared waypoint loop, pausing and scanning at each post.
-- They see the player by range and field of view, chase along an A\* route and
-  return to the post they abandoned when they lose you.
+- They see the player by range, field of view **and** a clear line of sight, so
+  walls and corners hide you. They chase along an A\* route and return to the
+  post they abandoned when they lose you.
 - The player walks, sprints on a stamina bar and sneaks silently.
 - `R` restarts the level; `F1` toggles the debug overlay.
 
 Known gaps, in the order they are planned:
 
-- **No line of sight yet.** A guard can see through a wall if you are inside its
-  cone and range.
 - **No suspicion, no search.** Losing sight sends a guard straight home, so a
   guard that keeps glimpsing you flickers between chase and return instead of
-  investigating.
+  investigating, and a guard has no memory of where you went.
+- **Nothing is heard yet.** The player already computes a noise radius for
+  sneaking, walking and sprinting; no guard listens to it.
 - The chips and the exit are drawn but not collectable, and nothing happens yet
   when a guard reaches you.
 
@@ -90,7 +96,8 @@ Known gaps, in the order they are planned:
 src/
   ai/        pure logic: StateMachine, states, Perception,
              Pathfinder, PathFollower, PriorityQueue   (no Phaser import)
-  world/     pure logic: Grid, LevelData, geometry     (no Phaser import)
+  world/     pure logic: Grid, LevelData, LineOfSight, geometry
+                                                      (no Phaser import)
   entities/  thin Phaser wrappers: Player, Enemy
   scenes/    Boot, Game
   utils/     Timer, Stamina
