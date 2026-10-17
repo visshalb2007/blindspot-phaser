@@ -209,6 +209,87 @@ describe('reset', () => {
   });
 });
 
+describe('line of sight', () => {
+  it('does not see a player behind a wall, however well framed', () => {
+    const grid = makeGrid();
+    const post = grid.waypoints[0];
+    const brain = new EnemyBrain({
+      x: post.x,
+      y: post.y,
+      heading: 0,
+      waypoints: grid.waypoints,
+      startIndex: 0,
+      grid,
+    });
+
+    // The player standing on the spawn tile in the next room along, with the
+    // guard turned to face it. Before line of sight existed this was a sighting.
+    const spawn = grid.spawn;
+    brain.heading = Math.atan2(spawn.y - brain.y, spawn.x - brain.x);
+    const sight = brain.senseTarget(spawn);
+
+    expect(sight.inRange).toBe(true);
+    expect(sight.inCone).toBe(true);
+    expect(sight.clearLine).toBe(false);
+    expect(sight.seen).toBe(false);
+    expect(brain.sightLine.blockedAt).not.toBeNull();
+    expect(grid.isWall(brain.sightLine.blockedAt.cx, brain.sightLine.blockedAt.cy)).toBe(true);
+  });
+
+  it('sees exactly as well as before once nothing is in the way', () => {
+    const grid = makeGrid();
+    const post = grid.waypoints[1];
+    const brain = new EnemyBrain({
+      x: post.x,
+      y: post.y,
+      heading: 0,
+      waypoints: grid.waypoints,
+      startIndex: 1,
+      grid,
+    });
+
+    const target = { x: post.x + 80, y: post.y };
+    brain.heading = Math.atan2(target.y - brain.y, target.x - brain.x);
+
+    expect(brain.senseTarget(target).seen).toBe(true);
+    expect(brain.sightLine.blockedAt).toBeNull();
+  });
+
+  it('never chases the player hiding at spawn, over a full minute', () => {
+    const grid = makeGrid();
+    const guards = spawnGuards(grid, 2);
+    const target = { x: grid.spawn.x, y: grid.spawn.y };
+    const states = new Set();
+
+    run(guards, 60, (guard) => states.add(guard.state), target);
+
+    // This is the exact case that used to break: a guard reached the room above
+    // the spawn corridor, saw the player through the wall in column 2 and spent
+    // the rest of the run flipping between chase and return.
+    expect([...states]).toEqual([STATE.PATROL]);
+  });
+
+  it('only ever reports seeing what a clear ray reaches', () => {
+    const grid = makeGrid();
+    const guards = spawnGuards(grid, 2);
+    const target = { x: grid.spawn.x, y: grid.spawn.y };
+    let sightings = 0;
+
+    run(
+      guards,
+      40,
+      (guard) => {
+        if (!guard.sight.seen) return;
+        sightings += 1;
+        expect(guard.sightLine.clear).toBe(true);
+      },
+      target,
+    );
+
+    expect(sightings).toBe(0);
+  });
+});
+
 describe('chase and return', () => {
   it('closes on a player it can see, then goes back to the post it left', () => {
     const grid = makeGrid();
