@@ -69,8 +69,52 @@ export function createGuardStates() {
         brain.onEnterPatrol();
       },
 
-      update(brain, dt) {
+      update(brain, dt, fsm) {
         brain.patrolStep(dt);
+
+        if (brain.canSeeTarget()) {
+          fsm.change(STATE.CHASE);
+        }
+      },
+    },
+
+    [STATE.CHASE]: {
+      enter(brain) {
+        brain.onEnterChase();
+      },
+
+      update(brain, _dt, fsm) {
+        brain.chaseStep();
+
+        // Losing sight ends the chase for now. Phase 7 puts SUSPICIOUS and
+        // SEARCH in between, but the rule "no sight, no chase" is the same.
+        if (!brain.canSeeTarget()) {
+          fsm.change(STATE.RETURN);
+        }
+      },
+    },
+
+    [STATE.RETURN]: {
+      enter(brain) {
+        brain.onEnterReturn();
+      },
+
+      update(brain, dt, fsm) {
+        // Spotting the player on the way back restarts the chase immediately.
+        if (brain.canSeeTarget()) {
+          fsm.change(STATE.CHASE);
+          return;
+        }
+
+        brain.returnStep(dt);
+
+        if (brain.hasReachedPatrolPost()) {
+          fsm.change(STATE.PATROL);
+        }
+      },
+
+      exit(brain) {
+        brain.onExitReturn();
       },
     },
   };

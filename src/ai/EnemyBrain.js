@@ -47,6 +47,7 @@ export class EnemyBrain {
     this.waypoints = waypoints;
     this.waypointIndex = startIndex % Math.max(1, waypoints.length);
     this.returnIndex = this.waypointIndex;
+    this.returnTarget = null;
     this.waiting = false;
     this.waitTimer = new Timer(CONFIG.enemy.waitAtWaypoint);
 
@@ -248,8 +249,7 @@ export class EnemyBrain {
   }
 
   /** Sweeps the head back and forth across `baseHeading`. */
-  _lookAround(dt) {
-    const sweep = degToRad(CONFIG.enemy.lookAroundSweep);
+  _lookAround(dt) {    const sweep = degToRad(CONFIG.enemy.lookAroundSweep);
 
     this.lookAroundAngle += this.lookAroundDirection * degToRad(CONFIG.enemy.lookAroundRate) * dt;
 
@@ -262,6 +262,63 @@ export class EnemyBrain {
     }
 
     this.heading = this.baseHeading + this.lookAroundAngle;
+  }
+
+  // ------------------------------------------------------------------ chase
+
+  /**
+   * Records where the guard was working toward, so RETURN has a destination.
+   * "The waypoint it left" is the one it was walking to when it spotted you -
+   * that is the point on the route it can resume from without walking back
+   * over ground it has already covered.
+   */
+  onEnterChase() {
+    this.returnIndex = this.waypointIndex;
+    this.returnTarget = this.currentWaypoint;
+    this.waiting = false;
+    this.waitTimer.reset();
+  }
+
+  chaseStep() {
+    // Chase the player while visible, and the last place they were seen
+    // while not. Chasing a stale position is what stops a guard ploughing
+    // into the wall the player just ran behind.
+    const target = this.canSeeTarget() ? this.target : (this.lastKnownPos ?? this.target);
+    this.steerTo(target, CONFIG.enemy.chaseSpeed);
+  }
+
+  // ----------------------------------------------------------------- return
+
+  onEnterReturn() {
+    this.returnTarget = this.waypoints[this.returnIndex] ?? { ...this.spawn };
+    this.waiting = false;
+    this.waitTimer.reset();
+  }
+
+  returnStep(dt) {
+    if (!this.hasPatrolRoute) {
+      this.velocity = { x: 0, y: 0 };
+      this._lookAround(dt);
+      return;
+    }
+
+    this.steerTo(this.returnTarget, CONFIG.enemy.patrolSpeed);
+  }
+
+  hasReachedPatrolPost() {
+    if (!this.hasPatrolRoute) return true;
+
+    return (
+      Math.hypot(this.returnTarget.x - this.x, this.returnTarget.y - this.y) <=
+      CONFIG.enemy.arriveRadius
+    );
+  }
+
+  /** Resumes the route from the post the guard abandoned. */
+  onExitReturn() {
+    if (this.hasPatrolRoute) {
+      this.waypointIndex = this.returnIndex;
+    }
   }
 
   // ------------------------------------------------------------------ reset
@@ -279,6 +336,7 @@ export class EnemyBrain {
 
     this.waypointIndex = this.spawn.startIndex % Math.max(1, this.waypoints.length);
     this.returnIndex = this.waypointIndex;
+    this.returnTarget = null;
     this.waiting = false;
     this.waitTimer.reset();
 
