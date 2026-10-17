@@ -160,4 +160,56 @@ describe('Alertness', () => {
     expect(meter.suspiciousAt).toBe(CONFIG.enemy.suspiciousAt);
     expect(meter.chaseAt).toBe(CONFIG.enemy.chaseAt);
   });
+
+  it('fills at the rate the player is being heard, not the rate they are seen', () => {
+    const meter = new Alertness();
+
+    meter.update(1, false, CONFIG.enemy.hearingGain / 2);
+
+    expect(meter.value).toBeCloseTo(CONFIG.enemy.hearingGain / 2, 6);
+    expect(meter.isSuspicious).toBe(false);
+  });
+
+  it('holds the drain off for as long as a noise lasts', () => {
+    const meter = new Alertness();
+    meter.alarm();
+
+    meter.update(1, false, 30);
+
+    // Still all the way up rather than sliding down: a guard that can hear the
+    // player is not forgetting them, even with nothing to look at.
+    expect(meter.value).toBe(100);
+  });
+
+  it('lets a sighting outweigh any amount of noise', () => {
+    const meter = new Alertness();
+
+    meter.update(1, true, 5);
+
+    // The two senses do not stack: being seen is being seen.
+    expect(meter.value).toBe(meter.gain);
+  });
+
+  it('drains once the noise stops', () => {
+    const meter = new Alertness();
+    meter.update(1, false, 30);
+    const heard = meter.value;
+
+    meter.update(1, false, 0);
+
+    expect(meter.value).toBeCloseTo(heard - meter.decay, 6);
+  });
+
+  it('treats no noise and a noise worth nothing the same', () => {
+    const silent = new Alertness();
+    const explicit = new Alertness();
+
+    silent.alarm();
+    explicit.alarm();
+
+    silent.update(1, false);
+    explicit.update(1, false, 0);
+
+    expect(silent.value).toBe(explicit.value);
+  });
 });

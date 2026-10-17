@@ -61,12 +61,15 @@ class Recorder {
     this.entries = [{ state: brain.state, at: 0 }];
   }
 
-  step(dt, target) {
+  step(dt, target, noise = null) {
     // A function target is re-evaluated every frame, which is how a test can
-    // keep the player pinned in front of a guard that is turning.
+    // keep the player pinned in front of a guard that is turning. The noise
+    // takes the same shape, so a test can keep a racket pinned behind a guard
+    // that is turning to face it.
     const point = typeof target === 'function' ? target(this.brain) : target;
+    const sound = typeof noise === 'function' ? noise(this.brain) : noise;
 
-    this.brain.update(dt, point);
+    this.brain.update(dt, point, sound);
     this.elapsed += dt;
 
     const current = this.states[this.states.length - 1];
@@ -76,16 +79,18 @@ class Recorder {
     }
   }
 
-  run(seconds, target) {
+  run(seconds, target, noise = null) {
     const frames = Math.round(seconds / DT);
-    for (let i = 0; i < frames; i += 1) this.step(DT, target);
+    for (let i = 0; i < frames; i += 1) this.step(DT, target, noise);
     return this;
   }
 
   /** Runs until the guard is in `state`, or it runs out of patience. */
-  runUntil(state, seconds, target) {
+  runUntil(state, seconds, target, noise = null) {
     const frames = Math.round(seconds / DT);
-    for (let i = 0; i < frames && this.brain.state !== state; i += 1) this.step(DT, target);
+    for (let i = 0; i < frames && this.brain.state !== state; i += 1) {
+      this.step(DT, target, noise);
+    }
     return this;
   }
 
@@ -145,6 +150,33 @@ function inFrontOrNowhere(brain, distance) {
   if (!brain.lineOfSight.canSee(brain, spot)) return FAR_AWAY;
 
   return spot;
+}
+
+/** A noise where `point` is, carrying for `radius` px. */
+function noiseAt(point, radius) {
+  return { x: point.x, y: point.y, radius };
+}
+
+/**
+ * A guard with no route at all: it stands where it is put and scans its post.
+ *
+ * Taking the walking out of a hearing test leaves only the sense, so an
+ * assertion about what a guard noticed cannot be satisfied by it having
+ * wandered into range by accident.
+ */
+function postedGuard(grid, cx, cy, heading = 0) {
+  const { x, y } = grid.cellToWorld(cx, cy);
+
+  return new EnemyBrain({ x, y, heading, waypoints: [], grid });
+}
+
+/** A racket `distance` px behind the nose of a guard that may be turning. */
+function behind(brain, distance, radius) {
+  return {
+    x: brain.x - Math.cos(brain.heading) * distance,
+    y: brain.y - Math.sin(brain.heading) * distance,
+    radius,
+  };
 }
 
 describe('suspicion', () => {
@@ -400,5 +432,113 @@ describe('awareness housekeeping', () => {
     expect(brain.hitsLanded).toBe(0);
     expect(brain.swinging).toBe(false);
     expect(brain.searchTarget).toBeNull();
+  });
+});
+
+describe('hearing', () => {
+  /** A wall between a player's tile and the room the guard is posted in. */
+  const WALLED = ['#############', '#P#.........#', '#############'];
+
+  it('turns a noise it cannot see into doubt', () => {
+    const grid = openRoom();
+    const brain = postedGuard(grid, 10, 6);
+    const rec = new Recorder(brain);
+    const player = { x: brain.x - 100, y: brain.y };
+
+    // A sprint 100px directly behind it, where the scan never reaches: the
+    // guard is put on edge by something it has no sight of at all.
+    rec.runUntil(STATE.SUSPICIOUS, 8, player, noiseAt(player, CONFIG.player.noise.sprint));
+
+    expect(rec.firstAt(STATE.SUSPICIOUS)).not.toBeNull();
+    expect(brain.canSeeTarget()).toBe(false);
+    expect(brain.heardSomething).toBe(true);
+  });
+
+  it('walks over to a noise, and the look turns into a sighting', () => {
+    const grid = openRoom();
+    const brain = postedGuard(grid, 10, 6);
+    const rec = new Recorder(brain);
+    const player = { x: brain.x - 100, y: brain.y };
+
+    rec.run(6, player, noiseAt(player, CONFIG.player.noise.sprint));
+
+    // It heard something, crept toward it, and the creep turned it onto the
+    // player it could only hear - which is the whole point of investigating.
+    expect(rec.states[0]).toBe(STATE.PATROL);
+    expect(rec.after(STATE.SUSPICIOUS)).toBe(STATE.CHASE);
+  });
+
+  it('never chases on a racket alone, however loud', () => {
+    const grid = openRoom(31, 21);
+    const brain = postedGuard(grid, 16, 11);
+    const rec = new Recorder(brain);
+
+    // A sprint pinned forever behind its nose: loud, continuous, and never once
+    // in front of it.
+    const sound = (b) => behind(b, 20, CONFIG.player.noise.sprint);
+    rec.run(5, FAR_AWAY, sound);
+
+    // Certainty is not the gate for a chase - eyes are.
+    expect(brain.alertness.isAlarmed).toBe(true);
+    expect(rec.visits(STATE.SUSPICIOUS)).toBeGreaterThan(0);
+    expect(rec.visits(STATE.CHASE)).toBe(0);
+    expect(rec.visits(STATE.ATTACK)).toBe(0);
+  });
+
+  it('never notices a player who is sneaking', () => {
+    const grid = openRoom();
+    const brain = postedGuard(grid, 10, 6);
+    const rec = new Recorder(brain);
+
+    rec.run(6, FAR_AWAY, (b) => behind(b, 20, CONFIG.player.noise.sneak));
+
+    expect(brain.heardSomething).toBe(false);
+    expect(rec.states).toEqual([STATE.PATROL]);
+    expect(brain.alertness.value).toBe(0);
+  });
+
+  it('goes to look where it heard something once the doubt drains away', () => {
+    const grid = openRoom(31, 21);
+    const brain = postedGuard(grid, 16, 11);
+    const rec = new Recorder(brain);
+
+    let lastHeard = null;
+    const sound = (b) => {
+      lastHeard = { x: b.x - Math.cos(b.heading) * 20, y: b.y - Math.sin(b.heading) * 20 };
+      return { ...lastHeard, radius: CONFIG.player.noise.sprint };
+    };
+
+    rec.runUntil(STATE.SUSPICIOUS, 8, FAR_AWAY, sound);
+    expect(brain.hasHunch).toBe(true);
+
+    // The racket stops and nothing comes of the doubt. A guard holding a place
+    // it has not been to yet goes there instead of going home - which is the
+    // one way into a search that does not start with a chase.
+    rec.runUntil(STATE.SEARCH, 10, FAR_AWAY, null);
+
+    expect(rec.after(STATE.SUSPICIOUS)).toBe(STATE.SEARCH);
+    expect(brain.searchTarget.x).toBeCloseTo(lastHeard.x, 0);
+    expect(brain.searchTarget.y).toBeCloseTo(lastHeard.y, 0);
+  });
+
+  it('hears through a wall it could never see through', () => {
+    const grid = new Grid(WALLED);
+    const brain = postedGuard(grid, 3, 1, Math.PI);
+    const rec = new Recorder(brain);
+    const player = { x: 56, y: 48 };
+
+    // Facing the player squarely across a wall: in the cone, in range, and
+    // with no line at all. What is left is the noise.
+    rec.runUntil(STATE.SUSPICIOUS, 8, player, noiseAt(player, CONFIG.player.noise.sprint));
+
+    expect(brain.canSeeTarget()).toBe(false);
+    expect(brain.heard.muffled).toBe(true);
+    expect(brain.heard.rate).toBeCloseTo(
+      brain.hearing.gain *
+        (1 - brain.heard.distance / CONFIG.player.noise.sprint) *
+        brain.hearing.muffled,
+      6,
+    );
+    expect(rec.visits(STATE.CHASE)).toBe(0);
   });
 });
