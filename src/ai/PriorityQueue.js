@@ -65,21 +65,31 @@ export class PriorityQueue {
   }
 
   _sinkDown(index) {
-    const node = this.heap[index];
     const length = this.heap.length;
+    const node = this.heap[index];
     let i = index;
 
     for (;;) {
       const left = 2 * i + 1;
       const right = left + 1;
-      let smallest = i;
 
-      if (left < length && this.heap[left].priority < this.heap[smallest].priority) {
+      // Compare against the priority of the node being sunk, not against
+      // `this.heap[i]`. That slot has already been overwritten by the previous
+      // iteration of this loop, so reading it here would compare against a
+      // value that is on its way up and stop the sink too early.
+      let smallest = i;
+      let smallestPriority = node.priority;
+
+      if (left < length && this.heap[left].priority < smallestPriority) {
         smallest = left;
+        smallestPriority = this.heap[left].priority;
       }
-      if (right < length && this.heap[right].priority < this.heap[smallest].priority) {
+
+      if (right < length && this.heap[right].priority < smallestPriority) {
         smallest = right;
+        smallestPriority = this.heap[right].priority;
       }
+
       if (smallest === i) break;
 
       this.heap[i] = this.heap[smallest];
