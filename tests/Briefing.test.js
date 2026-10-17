@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG } from '../src/config.js';
 import { Grid } from '../src/world/Grid.js';
 import { LEVEL_ROWS } from '../src/world/LevelData.js';
+import { LEVELS, configFor } from '../src/world/Levels.js';
 import { RunStats, OUTCOME } from '../src/world/RunStats.js';
 import { buildBriefing, CONTROLS } from '../src/world/Briefing.js';
 import { guardPosts } from '../src/world/Roster.js';
@@ -36,6 +37,31 @@ describe('buildBriefing', () => {
     expect(briefing.title).toBe(CONFIG.title.toUpperCase());
     expect(briefing.subtitle).toContain('Night Shift');
     expect(briefing.subtitle).toContain(`${grid.cols} x ${grid.rows}`);
+  });
+
+  it('names the level on the board and where it sits on the ladder', () => {
+    const briefing = buildBriefing({ grid });
+
+    expect(briefing.subtitle).toContain('level 1 of 5');
+  });
+
+  it('describes whichever level it is handed, not the first one', () => {
+    const last = LEVELS[LEVELS.length - 1];
+    const lastGrid = new Grid(last.rows);
+
+    const briefing = buildBriefing({
+      grid: lastGrid,
+      config: configFor(last),
+      level: last,
+    });
+    const job = panel(briefing, 'THE JOB');
+    const guards = panel(briefing, 'THE GUARDS');
+
+    expect(briefing.subtitle).toContain(last.name);
+    expect(briefing.subtitle).toContain(`level ${last.difficulty} of 5`);
+    expect(job['Data chips']).toBe(String(lastGrid.chips.length));
+    expect(job['Watch out']).toBe(last.blurb);
+    expect(guards['On shift']).toBe(`${last.guards} guards`);
   });
 
   it('lays out the panels a start page needs, in order', () => {

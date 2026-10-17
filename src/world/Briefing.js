@@ -1,6 +1,6 @@
 import { CONFIG } from '../config.js';
 import { formatDuration } from '../utils/Clock.js';
-import { LEVEL } from './LevelData.js';
+import { LEVELS, levelAt } from './Levels.js';
 import { OUTCOME } from './RunStats.js';
 import { guardPosts } from './Roster.js';
 
@@ -27,24 +27,33 @@ export const CONTROLS = Object.freeze([
  * renders sections of label/value rows and nothing else. Keeping the wording
  * here means the numbers on the start page cannot drift from the level or the
  * config they describe - the sight range on the start page *is*
- * `CONFIG.enemy.sightRange` - and it makes all of it assertable in a test,
- * which a wall of `add.text` calls never is.
+ * `CONFIG.enemy.sightRange`, and the roster is the level's own guard rule - and
+ * it makes all of it assertable in a test, which a wall of `add.text` calls
+ * never is.
  *
- * @param {{grid?: object, stats?: object, config?: object}} [sources]
+ * @param {{grid?: object, stats?: object, config?: object, level?: object}} [sources]
+ *   `level` is an entry from `world/Levels.js`; it names the map and warns about
+ *   it. `config` should be `configFor(level)` when a level has its own guard
+ *   count, which is how the roster stays honest about who is on shift.
  * @returns {{title: string, subtitle: string, hint: string, note: string,
  *   sections: Array<{heading: string, rows: Array<{label: string, value: string}>}>}}
  */
-export function buildBriefing({ grid = null, stats = null, config = CONFIG } = {}) {
+export function buildBriefing({
+  grid = null,
+  stats = null,
+  config = CONFIG,
+  level = levelAt(),
+} = {}) {
   const cols = grid?.cols ?? config.map.cols;
   const rows = grid?.rows ?? config.map.rows;
 
   return {
     title: config.title.toUpperCase(),
-    subtitle: `${LEVEL.name} - ${cols} x ${rows} tiles`,
+    subtitle: `${level.name} - level ${level.difficulty} of ${LEVELS.length} - ${cols} x ${rows} tiles`,
     hint: 'SPACE or click to start',
     note: 'the level behind this page is live',
     sections: [
-      { heading: 'THE JOB', rows: jobRows(grid) },
+      { heading: 'THE JOB', rows: jobRows(grid, level) },
       { heading: 'CONTROLS', rows: CONTROLS.map((row) => ({ ...row })) },
       { heading: 'THE GUARDS', rows: guardRows(grid, config) },
       { heading: 'HOW THEY THINK', rows: senseRows(config) },
@@ -53,12 +62,13 @@ export function buildBriefing({ grid = null, stats = null, config = CONFIG } = {
   };
 }
 
-function jobRows(grid) {
+function jobRows(grid, level) {
   const chips = grid?.chips?.length ?? 0;
 
   return [
-    { label: 'Data chips', value: `${chips}, and both of them` },
-    { label: 'The door', value: 'shut until both are lifted' },
+    { label: 'Data chips', value: `${chips}` },
+    { label: 'The door', value: 'shut until every chip is in' },
+    { label: 'Watch out', value: level.blurb },
     { label: 'Getting out', value: 'walk into it, that is the job' },
   ];
 }
