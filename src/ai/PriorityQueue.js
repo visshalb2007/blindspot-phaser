@@ -87,7 +87,6 @@ export class PriorityQueue {
 
       if (right < length && this.heap[right].priority < smallestPriority) {
         smallest = right;
-        smallestPriority = this.heap[right].priority;
       }
 
       if (smallest === i) break;
