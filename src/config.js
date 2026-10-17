@@ -43,6 +43,9 @@ export const CONFIG = {
   },
 
   enemy: {
+    // How many guards to spawn, and how far apart on the patrol loop they start.
+    count: 2,
+    radius: 10,
     patrolSpeed: 80,
     searchSpeed: 110,
     chaseSpeed: 150,
@@ -67,6 +70,10 @@ export const CONFIG = {
     repathInterval: 0.3,
     stuckTime: 1.0,
     stuckDist: 2,
+    // Scanning head movement while a guard is standing still: sweep in degrees
+    // either side of its base heading, at this many degrees per second.
+    lookAroundRate: 70,
+    lookAroundSweep: 80,
   },
 
   colors: {

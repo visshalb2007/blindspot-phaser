@@ -54,4 +54,26 @@ export function iconFor(state) {
   return STATE_ICON[state] ?? '';
 }
 
+/**
+ * Builds the guard's state handlers.
+ *
+ * Each handler owns the rules for leaving its own state, which keeps the
+ * transition table next to the behaviour it describes instead of in one large
+ * switch. `brain` is the StateMachine's owner, so the same handlers drive the
+ * on-screen guard and the headless simulation.
+ */
+export function createGuardStates() {
+  return {
+    [STATE.PATROL]: {
+      enter(brain) {
+        brain.onEnterPatrol();
+      },
+
+      update(brain, dt) {
+        brain.patrolStep(dt);
+      },
+    },
+  };
+}
+
 export default STATE;
