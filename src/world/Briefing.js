@@ -1,0 +1,145 @@
+import { CONFIG } from '../config.js';
+import { formatDuration } from '../utils/Clock.js';
+import { LEVEL } from './LevelData.js';
+import { OUTCOME } from './RunStats.js';
+import { guardPosts } from './Roster.js';
+
+/**
+ * The keys, in the order somebody learns them.
+ *
+ * Kept next to the briefing rather than in `CONFIG` because they are words on a
+ * panel, not a tunable: nothing reads a key binding out of here, and the README
+ * documents the same list.
+ */
+export const CONTROLS = Object.freeze([
+  { label: 'W A S D', value: 'move - the arrow keys work too' },
+  { label: 'Shift', value: 'sprint: fast, loud, costs stamina' },
+  { label: 'Ctrl', value: 'sneak: silent, and slow' },
+  { label: 'F1', value: 'see what the guards believe' },
+  { label: 'R', value: 'restart the level' },
+  { label: 'Esc', value: 'back to this page' },
+]);
+
+/**
+ * Everything the start page says, worked out from things that are true.
+ *
+ * The scene that draws the dashboard does not know a guard from a chip: it
+ * renders sections of label/value rows and nothing else. Keeping the wording
+ * here means the numbers on the start page cannot drift from the level or the
+ * config they describe - the sight range on the start page *is*
+ * `CONFIG.enemy.sightRange` - and it makes all of it assertable in a test,
+ * which a wall of `add.text` calls never is.
+ *
+ * @param {{grid?: object, stats?: object, config?: object}} [sources]
+ * @returns {{title: string, subtitle: string, hint: string, note: string,
+ *   sections: Array<{heading: string, rows: Array<{label: string, value: string}>}>}}
+ */
+export function buildBriefing({ grid = null, stats = null, config = CONFIG } = {}) {
+  const cols = grid?.cols ?? config.map.cols;
+  const rows = grid?.rows ?? config.map.rows;
+
+  return {
+    title: config.title.toUpperCase(),
+    subtitle: `${LEVEL.name} - ${cols} x ${rows} tiles`,
+    hint: 'SPACE or click to start',
+    note: 'the level behind this page is live',
+    sections: [
+      { heading: 'THE JOB', rows: jobRows(grid) },
+      { heading: 'CONTROLS', rows: CONTROLS.map((row) => ({ ...row })) },
+      { heading: 'THE GUARDS', rows: guardRows(grid, config) },
+      { heading: 'HOW THEY THINK', rows: senseRows(config) },
+      { heading: 'YOUR RECORD', rows: recordRows(stats) },
+    ],
+  };
+}
+
+function jobRows(grid) {
+  const chips = grid?.chips?.length ?? 0;
+
+  return [
+    { label: 'Data chips', value: `${chips}, and both of them` },
+    { label: 'The door', value: 'shut until the last chip is lifted' },
+    { label: 'Getting out', value: 'walk into it. that is the whole job' },
+  ];
+}
+
+function guardRows(grid, config) {
+  // Through the same rule the level spawns from, so the roster cannot list a
+  // guard the level never posts.
+  const posts = grid ? guardPosts(grid, { count: config.enemy.count }) : [];
+  const waypoints = grid?.waypoints ?? [];
+  const order = waypoints.map((wp) => wp.order).join(' - ');
+
+  return [
+    { label: 'On shift', value: `${posts.length}` },
+    {
+      label: 'Patrol loop',
+      value: order ? `${waypoints.length} posts, in order ${order}` : 'none',
+    },
+    {
+      label: 'Postings',
+      value: posts.map((post) => `${post.name} at post ${post.order}`).join(', '),
+    },
+    { label: 'Each one', value: 'walks the loop, pausing to scan at every post' },
+  ];
+}
+
+/**
+ * The guards' own numbers, quoted from the config they actually run on.
+ *
+ * This panel is the honest answer to "why did it see me": every figure here is
+ * the one in `CONFIG.enemy`, so retuning a guard retunes what the start page
+ * claims about it.
+ */
+function senseRows(config) {
+  const enemy = config.enemy;
+  const noise = config.player.noise;
+
+  return [
+    { label: 'Sight', value: `${enemy.sightRange}px, ${enemy.fov}° cone, and a clear line` },
+    { label: 'Hearing', value: `${noise.walk}px walking, ${noise.sprint}px sprinting` },
+    {
+      label: 'Through walls',
+      value: `${Math.round(enemy.hearingMuffled * 100)}% of the volume gets through`,
+    },
+    {
+      label: 'Certainty',
+      value: `fills at ${enemy.suspicionGain}/s, drains at ${enemy.suspicionDecay}/s`,
+    },
+    {
+      label: 'Commits at',
+      value: `${enemy.chaseAt}/100, and only with eyes on you`,
+    },
+    { label: 'Searching', value: `${enemy.searchDuration}s at the last place it had you` },
+  ];
+}
+
+function recordRows(stats) {
+  if (!stats || !stats.hasHistory) {
+    return [{ label: 'Nothing yet', value: 'the clock starts when you do' }];
+  }
+
+  return [
+    { label: 'Runs', value: String(stats.attempts) },
+    { label: 'Escapes', value: `${stats.wins} (${Math.round(stats.winRate * 100)}%)` },
+    { label: 'Caught', value: String(stats.catches) },
+    {
+      label: 'Best time',
+      value: stats.bestTime === null ? 'not yet' : formatDuration(stats.bestTime),
+    },
+    { label: 'Chips lifted', value: String(stats.chips) },
+    { label: 'Last run', value: lastRunText(stats) },
+  ];
+}
+
+function lastRunText(stats) {
+  if (!stats.lastOutcome) return 'none finished';
+
+  const how = stats.lastOutcome === OUTCOME.ESCAPED ? 'escaped' : 'caught';
+  const when = stats.lastTime === null ? '' : ` in ${formatDuration(stats.lastTime)}`;
+  const loot = `${stats.lastChips} chip${stats.lastChips === 1 ? '' : 's'}`;
+
+  return `${how}${when}, ${loot}`;
+}
+
+export default buildBriefing;
