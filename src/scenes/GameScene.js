@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config.js';
 import { Grid } from '../world/Grid.js';
 import { LEVEL_ROWS } from '../world/LevelData.js';
+import { Player } from '../entities/Player.js';
 
 /**
  * Owns everything that is on screen.
@@ -25,7 +26,9 @@ export default class GameScene extends Phaser.Scene {
     this._drawFloor();
     this._buildWalls();
     this._drawMarkers();
-    this._buildTemporaryActor();
+
+    this.player = new Player(this, this.grid.spawn.x, this.grid.spawn.y);
+    this.physics.add.collider(this.player.sprite, this.walls);
 
     this.cameras.main.setBounds(0, 0, CONFIG.map.widthPx, CONFIG.map.heightPx);
   }
@@ -64,36 +67,8 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Placeholder so the level can be walked before the Player entity exists in
-   * Phase 2. It is deliberately naive: un-normalised velocity, no sprint, no
-   * stamina. `src/entities/Player.js` replaces it.
-   */
-  _buildTemporaryActor() {
-    const { x, y } = this.grid.spawn;
-    this.placeholder = this.physics.add.sprite(x, y, 'player').setDepth(10);
-
-    const radius = CONFIG.player.radius;
-    this.placeholder.body.setCircle(
-      radius,
-      this.placeholder.width / 2 - radius,
-      this.placeholder.height / 2 - radius,
-    );
-
-    this.physics.add.collider(this.placeholder, this.walls);
-    this.cursors = this.input.keyboard.createCursorKeys();
-  }
-
-  update() {
-    const speed = CONFIG.player.speed;
-    let vx = 0;
-    let vy = 0;
-
-    if (this.cursors.left.isDown) vx -= speed;
-    if (this.cursors.right.isDown) vx += speed;
-    if (this.cursors.up.isDown) vy -= speed;
-    if (this.cursors.down.isDown) vy += speed;
-
-    this.placeholder.setVelocity(vx, vy);
+  update(_time, delta) {
+    const dt = Math.min(delta, CONFIG.maxDelta) / 1000;
+    this.player.update(dt);
   }
 }
