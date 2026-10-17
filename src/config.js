@@ -20,6 +20,15 @@ export const CONFIG = {
     heightPx: MAP_ROWS * TILE,
   },
 
+  mission: {
+    // How close the player has to walk to a chip to take it, and how close to
+    // the exit to be through it, in px. Both are a little more than the
+    // player's 10px radius, so nothing has to be taken pixel-perfect on a tile
+    // centre.
+    pickupRadius: 18,
+    exitRadius: 20,
+  },
+
   player: {
     speed: 170,
     sprint: 230,
