@@ -12,6 +12,7 @@ const MAP_ROWS = 18;
 
 export const CONFIG = {
   tile: TILE,
+  title: 'Night Shift Heist',
 
   map: {
     cols: MAP_COLS,
@@ -89,6 +90,32 @@ export const CONFIG = {
     // either side of its base heading, at this many degrees per second.
     lookAroundRate: 70,
     lookAroundSweep: 80,
+  },
+
+  /**
+   * The scoreboard. One key, versioned in the name, because a stored shape that
+   * no longer matches the code is worse than no record at all: bumping the
+   * version deliberately starts everyone's record over.
+   */
+  stats: {
+    key: 'night-shift-heist.stats.v1',
+  },
+
+  /**
+   * The look of the panels and the text on them.
+   *
+   * Here rather than in the scenes because the start page and the in-run HUD
+   * are drawn by different scenes and have to agree: they are the same UI.
+   */
+  ui: {
+    font: 'ui-monospace, monospace',
+    panel: 0x0b1220,
+    panelAlpha: 0.82,
+    panelLine: 0x2b3a63,
+    heading: '#7f9cff',
+    label: '#8b98bd',
+    value: '#e6ecff',
+    hint: '#ffd166',
   },
 
   colors: {
