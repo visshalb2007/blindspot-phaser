@@ -106,7 +106,35 @@ export class Enemy {
     g.lineStyle(1, color, 0.9);
     g.strokeCircle(b.x, b.y, CONFIG.enemy.arriveRadius);
 
+    this._drawSightRay(g, b);
     this._drawPath(g, b);
+  }
+
+  /**
+   * The ray the guard's sight test actually cast this frame: green when the
+   * player is in view, red when a wall cut it, with a cross where it stopped.
+   *
+   * Drawn from `brain.sightLine` rather than re-cast, so it cannot disagree
+   * with the verdict it is meant to explain.
+   */
+  _drawSightRay(g, b) {
+    const ray = b.sightLine;
+    if (!ray || !b.target) return;
+
+    const clear = ray.clear;
+
+    g.lineStyle(1, clear ? 0x66ff99 : 0xff5566, clear ? 0.7 : 0.9);
+    g.lineBetween(b.x, b.y, b.target.x, b.target.y);
+
+    if (ray.blockedAt) {
+      const { cx, cy } = ray.blockedAt;
+      const size = CONFIG.tile / 3;
+      const x = cx * CONFIG.tile + CONFIG.tile / 2;
+      const y = cy * CONFIG.tile + CONFIG.tile / 2;
+
+      g.lineBetween(x - size, y - size, x + size, y + size);
+      g.lineBetween(x - size, y + size, x + size, y - size);
+    }
   }
 
   /**
