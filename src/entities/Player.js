@@ -1,5 +1,6 @@
 import { CONFIG } from '../config.js';
 import { normalize } from '../world/geometry.js';
+import { Stamina } from '../utils/Stamina.js';
 
 /**
  * Thin Phaser wrapper around the player sprite.
@@ -13,6 +14,7 @@ export class Player {
   constructor(scene, x, y) {
     this.scene = scene;
     this.spawnPoint = { x, y };
+    this.stamina = new Stamina();
 
     this.sneaking = false;
     this.sprinting = false;
@@ -73,16 +75,20 @@ export class Player {
     };
   }
 
-  update() {
+  update(dt) {
     const input = this.readInput();
-    const speed = CONFIG.player.speed;
+    const moving = input.x !== 0 || input.y !== 0;
+
+    this.sprinting = this.stamina.update(dt, input.wantsSprint, moving);
+
+    const speed = this.sprinting ? CONFIG.player.sprint : CONFIG.player.speed;
 
     // Normalise before scaling: holding two directions must not make the
     // player faster than holding one.
     const dir = normalize(input.x, input.y);
     this.sprite.setVelocity(dir.x * speed, dir.y * speed);
 
-    if (input.x !== 0 || input.y !== 0) {
+    if (moving) {
       this.sprite.setRotation(Math.atan2(dir.y, dir.x));
     }
   }
@@ -95,6 +101,7 @@ export class Player {
     this.sneaking = false;
     this.sprinting = false;
     this.noiseRadius = 0;
+    this.stamina.reset();
   }
 }
 
