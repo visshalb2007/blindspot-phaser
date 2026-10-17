@@ -6,6 +6,18 @@ export const TILE_KIND = Object.freeze({
   WALL: 1,
 });
 
+/** The eight compass offsets, with their movement costs. */
+const AROUND_8 = Object.freeze([
+  [1, 0, 1],
+  [-1, 0, 1],
+  [0, 1, 1],
+  [0, -1, 1],
+  [1, 1, Math.SQRT2],
+  [1, -1, Math.SQRT2],
+  [-1, 1, Math.SQRT2],
+  [-1, -1, Math.SQRT2],
+]);
+
 /**
  * Parsed, queryable view of the ASCII level.
  *
@@ -75,12 +87,82 @@ export class Grid {
     };
   }
 
-  /** Centre of a cell in world pixels - the convention A\* returns. */
+  /**
+   * Centre of a cell in world pixels - the convention A\* returns.
+   */
   cellToWorld(cx, cy) {
     return {
       x: cx * this.tileSize + this.tileSize / 2,
       y: cy * this.tileSize + this.tileSize / 2,
     };
+  }
+
+  // -------------------------------------------------------------- navigation
+
+  /**
+   * The cells a guard may step to from here, eight-directionally.
+   *
+   * Diagonals are refused unless *both* orthogonal neighbours are also open.
+   * Without that rule a guard would squeeze between two wall corners that meet
+   * point to point, which looks like clipping through the wall.
+   *
+   * @returns {Array<{cx: number, cy: number, cost: number}>}
+   */
+  neighbours(cx, cy) {
+    const out = [];
+
+    for (const [dx, dy, cost] of AROUND_8) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+
+      if (this.isWall(nx, ny)) continue;
+
+      if (dx !== 0 && dy !== 0 && (this.isWall(cx + dx, cy) || this.isWall(cx, cy + dy))) {
+        continue;
+      }
+
+      out.push({ cx: nx, cy: ny, cost });
+    }
+
+    return out;
+  }
+
+  /**
+   * True when a straight world-space segment stays over floor tiles.
+   *
+   * Walks the segment in quarter-tile samples. Whenever the sample crosses into
+   * a new cell diagonally, the two orthogonal cells are checked too, so this
+   * agrees with `neighbours()` about what counts as a corner cut. Used to
+   * straighten A\* output into a shorter, less robotic route.
+   */
+  lineIsWalkable(ax, ay, bx, by) {
+    const start = this.worldToCell(ax, ay);
+    if (this.isWall(start.cx, start.cy)) return false;
+
+    const distance = Math.hypot(bx - ax, by - ay);
+    const steps = Math.max(1, Math.ceil(distance / (this.tileSize / 4)));
+
+    let prev = start;
+
+    for (let i = 1; i <= steps; i += 1) {
+      const t = i / steps;
+      const cell = this.worldToCell(ax + (bx - ax) * t, ay + (by - ay) * t);
+
+      if (this.isWall(cell.cx, cell.cy)) return false;
+
+      const dx = cell.cx - prev.cx;
+      const dy = cell.cy - prev.cy;
+
+      if (dx !== 0 && dy !== 0) {
+        if (this.isWall(prev.cx + dx, prev.cy) || this.isWall(prev.cx, prev.cy + dy)) {
+          return false;
+        }
+      }
+
+      prev = cell;
+    }
+
+    return true;
   }
 
   // ------------------------------------------------------------------ parsing
