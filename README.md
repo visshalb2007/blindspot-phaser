@@ -3,14 +3,16 @@
 A top-down stealth game where the guards are the point: they patrol a loop,
 notice you through a range/cone/line-of-sight check, take a moment to be sure,
 chase you along an A\* path, lose you, search the last place they saw you, and
-walk back to their post. Built with Phaser 3 and Vite in plain JavaScript, with
-every AI system written from scratch and unit tested.
+walk back to their post. Take the data chips, reach the door, and do not get
+caught. Built with Phaser 3 and Vite in plain JavaScript, with every AI system
+written from scratch and unit tested.
 
-> Status: Phases 0-7. Guards patrol, check range, cone *and* a clear line before
-> they believe their eyes, and a sighting only commits them once a certainty
-> meter fills: they glance, they look closer, they hunt, they search where they
-> last saw you, then they go back to their post. A landed blow costs the player
-> a point of health. The objective comes next.
+> Status: Phases 0-8, and the level is winnable. Two chips and a door that stays
+> shut until both are in hand. Guards patrol, check range, cone *and* a clear
+> line before they believe their eyes, and a sighting only commits them once a
+> certainty meter fills - glance, look closer, hunt, search where they last saw
+> you, go back to the post. A landed blow costs a point of health; three of them
+> and the run is over.
 
 ## Prerequisites
 
@@ -79,6 +81,22 @@ failure rather than a stutter.
 | `F1` | Toggle the debug overlay |
 | `R` | Restart the level |
 
+## The job
+
+Get every chip, then leave through the door.
+
+- A chip is taken by walking within 18px of it; it pops and fades so it is clear
+  which one went. The HUD keeps the count.
+- The door is drawn as a faint outline while chips are outstanding - walking
+  into it does nothing at all, and does not bank a win for later - and brightens
+  with a pulse when the last chip turns it on.
+- That is the whole win condition, and it lives in `src/world/Mission.js`, which
+  has no Phaser import. `tests/Mission.test.js` asserts that the shipped level
+  can be finished, so a future map edit that walls off a chip or the door fails
+  a test rather than making the game quietly impossible.
+- Getting caught is the other full stop. Both ends of a run hold the world still
+  and wait for `R`.
+
 ## How the AI works
 
 Every guard runs the same loop, and each stage is a separate testable module:
@@ -137,15 +155,20 @@ radius, the A\* route it is walking and every patrol waypoint with its order.
   the same frame cannot cost two points between them. Three hits and you are
   caught: the level stops until `R`.
 - The player walks, sprints on a stamina bar and sneaks silently.
-- A HUD shows health and each guard's certainty, which is otherwise invisible.
+- Two chips and a door make up the objective, so there is now something to win
+  as well as something to lose.
+- A HUD shows health, the chip count and whether the door is open, plus each
+  guard's certainty, which is otherwise invisible.
 - `F1` toggles the debug overlay on top of the A\* route and vision cone.
 
 Known gaps, in the order they are planned:
 
 - **Nothing is heard yet.** The player already computes a noise radius for
-  sneaking, walking and sprinting; no guard listens to it.
-- The chips and the exit are drawn but not collectable, so there is no way to
-  win. Being caught and pressing `R` is the whole of the game loop so far.
+  sneaking, walking and sprinting; no guard listens to it, and lifting a chip
+  makes no sound either, so there is no way to draw a guard to a spot or to blow
+  a silent approach at the last second.
+- The level and its difficulty are fixed: one map, two chips, two guards, no
+  timer and no score. A run is won or lost, and then it is `R`.
 - A guard that searches always runs its full time budget in one spot, rather
   than widening the sweep around the last known position.
 - Routes land on tile centres, which is right for a patrol post and wrong for a
@@ -161,8 +184,8 @@ Known gaps, in the order they are planned:
 src/
   ai/        pure logic: StateMachine, states, Perception, Alertness,
              Pathfinder, PathFollower, PriorityQueue    (no Phaser import)
-  world/     pure logic: Grid, LevelData, LineOfSight, geometry
-                                                       (no Phaser import)
+  world/     pure logic: Grid, LevelData, LineOfSight, Mission,
+             geometry                                  (no Phaser import)
   entities/  thin Phaser wrappers: Player, Enemy
   scenes/    thin Phaser wrappers: Boot, Game
   utils/     pure logic: Timer, Stamina, Health
