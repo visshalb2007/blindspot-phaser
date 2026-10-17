@@ -1,5 +1,6 @@
 import { CONFIG } from '../config.js';
 import { normalize } from '../world/geometry.js';
+import { Health } from '../utils/Health.js';
 import { Stamina } from '../utils/Stamina.js';
 
 /**
@@ -14,6 +15,7 @@ export class Player {
   constructor(scene, x, y) {
     this.scene = scene;
     this.spawnPoint = { x, y };
+    this.health = new Health();
     this.stamina = new Stamina();
 
     this.sneaking = false;
@@ -76,6 +78,8 @@ export class Player {
   }
 
   update(dt) {
+    this._tickHurt(dt);
+
     const input = this.readInput();
     const moving = input.x !== 0 || input.y !== 0;
 
@@ -104,6 +108,40 @@ export class Player {
   }
 
   /**
+   * A guard's blow landed.
+   *
+   * @returns {boolean} whether it counted - false while the invulnerability
+   *   window is open, so two guards swinging on the same frame cannot cost two
+   *   points between them.
+   */
+  takeHit() {
+    return this.health.takeHit();
+  }
+
+  get isDead() {
+    return this.health.isDead;
+  }
+
+  /**
+   * Runs the invulnerability window down, blinking while it lasts.
+   *
+   * The blink is the entire feedback for "that one did not count"; without it a
+   * player cannot tell a shrug from nothing happening at all.
+   */
+  _tickHurt(dt) {
+    if (!this.health.isHurt) return;
+
+    this.health.update(dt);
+
+    if (!this.health.isHurt) {
+      this.sprite.setAlpha(1);
+      return;
+    }
+
+    this.sprite.setAlpha(Math.floor(this.health.invulnerable * 12) % 2 === 0 ? 0.35 : 1);
+  }
+
+  /**
    * How far the player can currently be heard, in pixels.
    *
    * Sneaking is silent (0), so a guard has to be looking at you; sprinting
@@ -121,9 +159,11 @@ export class Player {
     this.sprite.setPosition(this.spawnPoint.x, this.spawnPoint.y);
     this.sprite.setVelocity(0, 0);
     this.sprite.setRotation(0);
+    this.sprite.setAlpha(1);
     this.sneaking = false;
     this.sprinting = false;
     this.noiseRadius = 0;
+    this.health.reset();
     this.stamina.reset();
   }
 }

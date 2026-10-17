@@ -26,6 +26,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.debugOn = false;
+    this.caught = false;
+    this.caughtText = null;
 
     this._drawFloor();
     this._buildWalls();
@@ -35,6 +37,7 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.player.sprite, this.walls);
 
     this._spawnGuards();
+    this._buildHud();
 
     this.waypointDebug = this.add.graphics().setDepth(6);
     this._buildWaypointLabels();
@@ -48,6 +51,10 @@ export default class GameScene extends Phaser.Scene {
   update(_time, delta) {
     const dt = clampDelta(delta);
 
+    // Being caught is a full stop: the guards hold the pose they caught you in
+    // and R is the only way out of it.
+    if (this.caught) return;
+
     this.player.update(dt);
 
     // Every guard senses the same player position for the frame, so two guards
@@ -57,6 +64,8 @@ export default class GameScene extends Phaser.Scene {
     for (const enemy of this.enemies) {
       enemy.update(dt, target);
     }
+
+    this._updateHud();
 
     if (this.debugOn) this._drawWaypointDebug();
   }
@@ -134,9 +143,47 @@ export default class GameScene extends Phaser.Scene {
           waypoints,
           startIndex,
           grid: this.grid,
+          // The brain does not know what a hit means; the scene does.
+          onHit: () => this._onPlayerHit(),
         }),
       );
     }
+  }
+
+  /**
+   * A guard's swing connected.
+   *
+   * The player decides whether it counts (see `Health`), so two guards swinging
+   * on the same frame cannot take two points between them.
+   */
+  _onPlayerHit() {
+    if (!this.player.takeHit()) return;
+
+    if (this.player.isDead) this._catchPlayer();
+  }
+
+  /**
+   * The lose state: the world stops and waits for R.
+   *
+   * There is no objective to win yet, so this is deliberately the smallest
+   * honest thing - a caught player, a message, and the control the README
+   * already documents.
+   */
+  _catchPlayer() {
+    this.caught = true;
+    this.player.sprite.setVelocity(0, 0);
+    this._updateHud();
+
+    this.caughtText = this.add
+      .text(CONFIG.map.widthPx / 2, CONFIG.map.heightPx / 2, 'CAUGHT - press R to try again', {
+        fontFamily: 'ui-monospace, monospace',
+        fontSize: '18px',
+        color: '#ff8888',
+        backgroundColor: '#000000cc',
+        padding: { x: 12, y: 8 },
+      })
+      .setOrigin(0.5)
+      .setDepth(30);
   }
 
   // ------------------------------------------------------------------- debug
@@ -154,6 +201,51 @@ export default class GameScene extends Phaser.Scene {
     for (const enemy of this.enemies) {
       enemy.reset();
     }
+
+    if (this.caughtText) {
+      this.caughtText.destroy();
+      this.caughtText = null;
+    }
+
+    this.caught = false;
+    this._updateHud();
+  }
+
+  /**
+   * Two lines of text: health, and how close each guard is to committing.
+   *
+   * The alertness meter is the one piece of state with no on-screen tell of its
+   * own - the guards' labels already carry their state, and a guard's colour
+   * carries how dangerous it is - so this is where a meter that is quietly
+   * filling can actually be watched.
+   */
+  _buildHud() {
+    this.hud = this.add
+      .text(8, 6, '', {
+        fontFamily: 'ui-monospace, monospace',
+        fontSize: '12px',
+        color: '#c8d4ff',
+      })
+      .setDepth(24);
+  }
+
+  _updateHud() {
+    const health = this.player.health;
+    const pips = `${'*'.repeat(Math.max(0, health.value))}${'-'.repeat(
+      Math.max(0, health.max - health.value),
+    )}`;
+
+    const lines = [`HEALTH ${pips}`];
+
+    for (const enemy of this.enemies) {
+      const brain = enemy.brain;
+      const filled = Math.round(brain.alertness.normalised * 10);
+      const bar = `${'#'.repeat(filled)}${'.'.repeat(10 - filled)}`;
+
+      lines.push(`${brain.name.padEnd(8)} ${brain.state.padEnd(10)} ${bar}`);
+    }
+
+    this.hud.setText(lines.join('\n'));
   }
 
   /**
