@@ -40,6 +40,7 @@ export default class GameScene extends Phaser.Scene {
     this._buildWaypointLabels();
 
     this.input.keyboard.on('keydown-F1', () => this.toggleDebug());
+    this.input.keyboard.on('keydown-R', () => this.restartLevel());
 
     this.cameras.main.setBounds(0, 0, CONFIG.map.widthPx, CONFIG.map.heightPx);
   }
@@ -139,6 +140,21 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------- debug
+
+  /**
+   * Sends both actors back to where they started, without rebuilding the scene.
+   *
+   * Every actor owns a `reset()` for exactly this. Rebuilding the scene would
+   * work too, but it re-parses the level, regenerates nothing and drops the
+   * debug toggle, whereas a reset is instant and leaves the world alone.
+   */
+  restartLevel() {
+    this.player.reset();
+
+    for (const enemy of this.enemies) {
+      enemy.reset();
+    }
+  }
 
   /**
    * One text object per waypoint, created once and toggled. Building them in

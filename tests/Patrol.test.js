@@ -167,6 +167,48 @@ describe('patrol route', () => {
   });
 });
 
+describe('reset', () => {
+  it('puts a guard that has wandered off back on its post', () => {
+    const grid = makeGrid();
+    const [guard] = spawnGuards(grid, 1);
+    const start = { x: guard.x, y: guard.y };
+    const startHeading = guard.heading;
+
+    // Patrol for a while, then chase something across the map.
+    run([guard], 6, null, { x: grid.exit.x, y: grid.exit.y });
+    expect(guard.position).not.toEqual(start);
+
+    guard.reset();
+
+    expect(guard.x).toBe(start.x);
+    expect(guard.y).toBe(start.y);
+    expect(guard.heading).toBe(startHeading);
+    expect(guard.velocity).toEqual({ x: 0, y: 0 });
+    expect(guard.waypointIndex).toBe(guard.spawn.startIndex);
+    expect(guard.state).toBe(STATE.PATROL);
+    expect(guard.follower.hasPath).toBe(false);
+    expect(guard.waiting).toBe(false);
+    expect(guard.sight.seen).toBe(false);
+  });
+
+  it('can be reset repeatedly without drifting', () => {
+    const grid = makeGrid();
+    const guards = spawnGuards(grid, 2);
+    const starts = guards.map((g) => ({ x: g.x, y: g.y, heading: g.heading }));
+
+    for (let round = 0; round < 3; round += 1) {
+      run(guards, 7);
+      for (const guard of guards) guard.reset();
+
+      guards.forEach((guard, i) => {
+        expect(guard.x).toBe(starts[i].x);
+        expect(guard.y).toBe(starts[i].y);
+        expect(guard.heading).toBe(starts[i].heading);
+      });
+    }
+  });
+});
+
 describe('chase and return', () => {
   it('closes on a player it can see, then goes back to the post it left', () => {
     const grid = makeGrid();
