@@ -304,8 +304,7 @@ describe('chase and return', () => {
     });
 
     // Straight east of the post, on the same floor row and well inside the
-    // 180px sight range. No line-of-sight test exists yet (Phase 5), so being
-    // in range and in the cone is enough to be seen.
+    // 180px sight range, with nothing between them: a certain sighting.
     const startDistance = 80;
     const near = { x: post.x + startDistance, y: post.y };
     expect(distance(post, near)).toBeLessThan(CONFIG.enemy.sightRange);
@@ -317,9 +316,12 @@ describe('chase and return', () => {
     // player it may already be walking toward a later waypoint. That is the
     // post it should come back to, so remember it rather than assuming wp1.
     let abandoned = null;
+
+    // Long enough to see the whole escalation: half a second to become
+    // suspicious, then another second and a bit to become certain.
     run(
       [brain],
-      1.5,
+      3,
       (guard) => {
         if (abandoned === null && guard.state === STATE.CHASE) abandoned = guard.currentWaypoint;
         record(guard);

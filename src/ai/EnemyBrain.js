@@ -2,6 +2,7 @@ import { CONFIG } from '../config.js';
 import { Timer } from '../utils/Timer.js';
 import { degToRad } from '../world/geometry.js';
 import { LineOfSight } from '../world/LineOfSight.js';
+import { Alertness } from './Alertness.js';
 import { Pathfinder } from './Pathfinder.js';
 import { PathFollower } from './PathFollower.js';
 import { Perception } from './Perception.js';
@@ -31,6 +32,7 @@ export class EnemyBrain {
     startIndex = 0,
     grid = null,
     lineOfSight = null,
+    onHit = null,
   } = {}) {
     this.name = name;
     this.radius = CONFIG.enemy.radius;
@@ -67,6 +69,24 @@ export class EnemyBrain {
     this.perception = new Perception({
       canSee: this.lineOfSight ? (self, target) => this._traceSight(self, target) : null,
     });
+
+    // Awareness: the certainty meter, how long it has been since the last
+    // sighting, and the timers behind the suspicious, search and attack states.
+    // `timeSinceSeen` starts at Infinity because "never seen" must not read as
+    // "seen a moment ago" to the rule that ends a chase.
+    this.alertness = new Alertness();
+    this.timeSinceSeen = Infinity;
+
+    this.suspicionPause = new Timer(CONFIG.enemy.alertPause);
+    this.searchTimer = new Timer(CONFIG.enemy.searchDuration);
+    this.searchTarget = null;
+    this.searchArrived = false;
+
+    this.swinging = false;
+    this.attackTimer = new Timer(CONFIG.enemy.attackWindup);
+    this.attackCooldown = new Timer(CONFIG.enemy.attackCooldown);
+    this.hitsLanded = 0;
+    this.onHit = onHit;
 
     // A guard with no grid still works: it just steers straight at whatever
     // it wants to reach. That keeps the brain usable in unit tests.
@@ -121,6 +141,7 @@ export class EnemyBrain {
 
   update(dt, target) {
     this.senseTarget(target ?? this.target);
+    this._updateAwareness(dt);
     this.fsm.update(dt);
     this._integrate(dt);
   }
@@ -138,6 +159,28 @@ export class EnemyBrain {
 
   canSeeTarget() {
     return this.sight.seen;
+  }
+
+  /**
+   * Advances everything about awareness rather than about acting: the certainty
+   * meter and the clock that measures how long sight has been lost.
+   *
+   * Both are derived from this frame's sighting, so they can never disagree
+   * with what `Perception` just reported.
+   */
+  _updateAwareness(dt) {
+    this.alertness.update(dt, this.sight.seen);
+
+    if (this.sight.seen) {
+      this.timeSinceSeen = 0;
+    } else {
+      this.timeSinceSeen += dt;
+    }
+  }
+
+  /** True once the guard has gone `seconds` without a sighting. */
+  lostSightFor(seconds) {
+    return this.timeSinceSeen >= seconds;
   }
 
   /**
@@ -359,6 +402,120 @@ export class EnemyBrain {
     }
   }
 
+  // ------------------------------------------------------------ suspicion
+
+  /**
+   * Seen something, not sure what. The guard stops and takes a beat before it
+   * even turns its head, which is what gives a player who just crossed its path
+   * a moment to get behind cover.
+   */
+  onEnterSuspicious() {
+    this.velocity = { x: 0, y: 0 };
+    this.waiting = false;
+    this.waitTimer.reset();
+    this.suspicionPause.start();
+    this._clearPath();
+  }
+
+  suspiciousStep(dt) {
+    this.velocity = { x: 0, y: 0 };
+
+    // Nothing at all for `alertPause`, then a cautious walk toward whatever it
+    // saw - the player while they stay visible, and the place they were seen
+    // once they do not. It is slower than a chasing guard on purpose: suspicion
+    // is a puzzle to walk away from, not a threat to outrun.
+    if (this.suspicionPause.tick(dt)) {
+      const where = this.canSeeTarget() ? this.target : (this.lastKnownPos ?? this.position);
+      this.navigateTo(where, CONFIG.enemy.patrolSpeed, dt);
+    }
+  }
+
+  // --------------------------------------------------------------- search
+
+  /**
+   * The committed hunt after a chase is lost: walk to the spot the player was
+   * last seen, then stand there and sweep the ground for `searchDuration`.
+   */
+  onEnterSearch() {
+    this.searchTarget = this.lastKnownPos ? { ...this.lastKnownPos } : { ...this.position };
+    this.searchTimer.start();
+    this.searchArrived = false;
+    this.waiting = false;
+    this.waitTimer.reset();
+    this._clearPath();
+  }
+
+  searchStep(dt) {
+    this.searchTimer.tick(dt);
+
+    if (!this.navigateTo(this.searchTarget, CONFIG.enemy.searchSpeed, dt)) return;
+
+    this.velocity = { x: 0, y: 0 };
+
+    if (!this.searchArrived) {
+      // Anchor the sweep on the heading it arrived with, so the guard searches
+      // the ground in front of itself instead of spinning on the spot.
+      this.searchArrived = true;
+      this.baseHeading = this.heading;
+      this.lookAroundAngle = 0;
+    }
+
+    this._lookAround(dt);
+  }
+
+  /** True once the search has used up its time, however far it got. */
+  searchOver() {
+    return this.searchTimer.done;
+  }
+
+  // --------------------------------------------------------------- attack
+
+  /**
+   * Swings in place for as long as the player stays this close.
+   *
+   * The guard plants its feet rather than lunging, so a blow can never shove
+   * the player into geometry. The brain also does not know what a hit *means*:
+   * it reports one through `onHit` and the owner decides, which is what keeps
+   * this module free of health bars and scenes.
+   */
+  onEnterAttack() {
+    this.waiting = false;
+    this.waitTimer.reset();
+    this._clearPath();
+    this._beginSwing();
+  }
+
+  attackStep(dt) {
+    // Face the player without moving: `steerTo` sets the heading and a zero
+    // velocity in the same place.
+    this.steerTo(this.target, 0);
+
+    if (!this.swinging) {
+      if (this.attackCooldown.tick(dt)) this._beginSwing();
+      return;
+    }
+
+    if (this.attackTimer.tick(dt)) {
+      this.swinging = false;
+      this.attackCooldown.start();
+      this.hitsLanded += 1;
+
+      if (this.onHit) this.onHit(this);
+    }
+  }
+
+  _beginSwing() {
+    this.swinging = true;
+    this.attackTimer.start();
+    this.attackCooldown.reset();
+  }
+
+  onExitAttack() {
+    this.swinging = false;
+    this.attackTimer.reset();
+    this.attackCooldown.reset();
+  }
+
   // ------------------------------------------------------------ navigation
 
   /**
@@ -447,6 +604,17 @@ export class EnemyBrain {
 
     this.lookAroundAngle = 0;
     this.lookAroundDirection = 1;
+
+    this.alertness.reset();
+    this.timeSinceSeen = Infinity;
+    this.suspicionPause.reset();
+    this.searchTimer.reset();
+    this.searchTarget = null;
+    this.searchArrived = false;
+    this.swinging = false;
+    this.attackTimer.reset();
+    this.attackCooldown.reset();
+    this.hitsLanded = 0;
 
     this.sightLine = null;
     this.perception.reset();

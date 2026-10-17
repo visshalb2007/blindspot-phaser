@@ -72,8 +72,37 @@ export function createGuardStates() {
       update(brain, dt, fsm) {
         brain.patrolStep(dt);
 
-        if (brain.canSeeTarget()) {
+        if (!brain.canSeeTarget()) return;
+
+        // Seeing the player is not the same as knowing what to do about them.
+        // The meter has to fill first - and because it drains slower than it
+        // fills, a guard that keeps catching glimpses escalates instead of
+        // flickering between calm and furious.
+        if (brain.alertness.isAlarmed) {
           fsm.change(STATE.CHASE);
+        } else if (brain.alertness.isSuspicious) {
+          fsm.change(STATE.SUSPICIOUS);
+        }
+      },
+    },
+
+    [STATE.SUSPICIOUS]: {
+      enter(brain) {
+        brain.onEnterSuspicious();
+      },
+
+      update(brain, dt, fsm) {
+        brain.suspiciousStep(dt);
+
+        if (brain.canSeeTarget() && brain.alertness.isAlarmed) {
+          fsm.change(STATE.CHASE);
+          return;
+        }
+
+        // Nothing came of it. The doubt drains away and the guard resumes the
+        // route it was on, from the post it had not yet reached.
+        if (!brain.alertness.isSuspicious) {
+          fsm.change(STATE.PATROL);
         }
       },
     },
@@ -86,11 +115,67 @@ export function createGuardStates() {
       update(brain, dt, fsm) {
         brain.chaseStep(dt);
 
-        // Losing sight ends the chase for now. Phase 7 puts SUSPICIOUS and
-        // SEARCH in between, but the rule "no sight, no chase" is the same.
-        if (!brain.canSeeTarget()) {
+        // Close enough to swing. Forcing the change skips the minimum state
+        // time: a guard that has just run you down should not stand waiting for
+        // its 0.4s to expire while you walk away.
+        if (brain.canSeeTarget() && brain.sight.distance <= CONFIG.enemy.attackEnter) {
+          fsm.change(STATE.ATTACK, { force: true });
+          return;
+        }
+
+        // Losing sight no longer ends the hunt immediately. A second without a
+        // sighting commits the guard to searching the spot, and only a fruitless
+        // search sends it home - which is what stops the old CHASE/RETURN pulse.
+        if (brain.lostSightFor(CONFIG.enemy.losLostTime)) {
+          fsm.change(STATE.SEARCH);
+        }
+      },
+    },
+
+    [STATE.SEARCH]: {
+      enter(brain) {
+        brain.onEnterSearch();
+      },
+
+      update(brain, dt, fsm) {
+        brain.searchStep(dt);
+
+        // Picking the trail back up while the guard is still warm on it goes
+        // straight back to the chase; there is no second meter to fill.
+        if (brain.canSeeTarget() && brain.alertness.isSuspicious) {
+          fsm.change(STATE.CHASE);
+          return;
+        }
+
+        if (brain.searchOver()) {
           fsm.change(STATE.RETURN);
         }
+      },
+    },
+
+    [STATE.ATTACK]: {
+      enter(brain) {
+        brain.onEnterAttack();
+      },
+
+      update(brain, dt, fsm) {
+        brain.attackStep(dt);
+
+        if (brain.lostSightFor(CONFIG.enemy.losLostTime)) {
+          fsm.change(STATE.SEARCH);
+          return;
+        }
+
+        // The exit radius is deliberately wider than the entry radius, so a
+        // player hovering on the boundary cannot make the guard swing and stop
+        // on alternate frames.
+        if (brain.sight.distance > CONFIG.enemy.attackExit) {
+          fsm.change(STATE.CHASE);
+        }
+      },
+
+      exit(brain) {
+        brain.onExitAttack();
       },
     },
 
@@ -100,7 +185,9 @@ export function createGuardStates() {
       },
 
       update(brain, dt, fsm) {
-        // Spotting the player on the way back restarts the chase immediately.
+        // Spotting the player on the way back restarts the chase immediately:
+        // a guard walking home is already alert, and with line of sight in
+        // place a sighting is a real one rather than a glance through a wall.
         if (brain.canSeeTarget()) {
           fsm.change(STATE.CHASE);
           return;
