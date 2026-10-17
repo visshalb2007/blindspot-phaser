@@ -61,6 +61,12 @@ export const CONFIG = {
     sightRange: 180,
     loseRange: 240,
     fov: 90,
+    // Hearing. `player.noise` is the radius sound carries to; a guard inside
+    // that circle grows suspicious at `hearingGain` per second at the source,
+    // falling off to nothing at the rim, and at a fraction of that through a
+    // wall. Loudness only ever buys doubt - a chase still needs a sighting.
+    hearingGain: 40,
+    hearingMuffled: 0.35,
     attackEnter: 40,
     attackExit: 60,
     attackCooldown: 1.0,
