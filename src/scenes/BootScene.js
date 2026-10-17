@@ -22,7 +22,10 @@ export default class BootScene extends Phaser.Scene {
 
   create() {
     this._generateTextures();
-    this.scene.start('Game');
+
+    // Textures are the boot scene's whole job; the start page is next, and it
+    // is the one that offers the game itself.
+    this.scene.start('Dashboard');
   }
 
   _generateTextures() {
