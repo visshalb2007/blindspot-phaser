@@ -1,18 +1,20 @@
 # Night Shift Heist
 
 A top-down stealth game where the guards are the point: they patrol a loop,
-notice you through a range/cone/line-of-sight check, take a moment to be sure,
-chase you along an A\* path, lose you, search the last place they saw you, and
-walk back to their post. Take the data chips, reach the door, and do not get
-caught. Built with Phaser 3 and Vite in plain JavaScript, with every AI system
-written from scratch and unit tested.
+notice you through a range/cone/line-of-sight check, hear you through the wall
+you are hiding behind, take a moment to be sure, chase you along an A\* path,
+lose you, search the last place they saw or heard you, and walk back to their
+post. Take the data chips, reach the door, and do not get caught. Built with
+Phaser 3 and Vite in plain JavaScript, with every AI system written from scratch
+and unit tested.
 
-> Status: Phases 0-8, and the level is winnable. Two chips and a door that stays
+> Status: Phases 0-9, and the level is winnable. Two chips and a door that stays
 > shut until both are in hand. Guards patrol, check range, cone *and* a clear
-> line before they believe their eyes, and a sighting only commits them once a
-> certainty meter fills - glance, look closer, hunt, search where they last saw
-> you, go back to the post. A landed blow costs a point of health; three of them
-> and the run is over.
+> line before they believe their eyes, and listen for the racket you make around
+> corners; a sighting only commits them once a certainty meter fills, and noise
+> fills that same meter but can never finish the job on its own - glance, look
+> closer, hunt, search where they last had you, go back to the post. A landed
+> blow costs a point of health; three of them and the run is over.
 
 ## Prerequisites
 
@@ -106,6 +108,8 @@ Perception -> Alertness -> FSM -> Pathfinder -> PathFollower -> Enemy
 (range,       (how sure    (what  (where does    (which way     (position +
  cone,         are we?)      now?)  it go?)        now?)          visuals)
  clear line)
+Hearing -----^
+(how far a noise carries, and what is in between)
 ```
 
 `Perception` only reports a sighting when all three of its tests agree: close
@@ -113,16 +117,31 @@ enough, inside the guard's field of view, and a clear line across the grid. That
 last one is `world/LineOfSight.js`, a Bresenham raycast that also reports which
 wall cut the view.
 
-A sighting does not send a guard straight at you. It feeds a certainty meter
-that fills while the guard can see you and drains while it cannot, and the meter
-decides how far the guard commits:
+`Hearing` is the second sense, and it is deliberately the weaker one. The player
+carries a noise circle - nothing while sneaking or standing still, a small radius
+while walking, most of a room while sprinting - and a guard standing inside it
+fills the same certainty meter, faster the closer it is to the source. Walls
+muffle rather than block, so a racket around a corner still lands at a fraction
+of its volume: that is how a guard notices what it has no way to look at. What a
+noise can never do is make a guard *certain*, because a chase is only ever
+entered on a sighting and the meter's alarm reading is only consulted next to
+one. A loud approach buys you an investigation, not a footrace.
+
+A noise also leaves the guard with a *hunch*: a place worth walking to that it
+has not been to yet. So when the doubt drains away with a hunch still pending,
+the guard goes to search it instead of going home - walk too loudly past a patrol
+and it will end up standing where you were when you stopped.
+
+Neither sense sends a guard straight at you. Both feed one certainty meter that
+fills while the guard can see or hear you and drains while it can neither, and
+the meter decides how far the guard commits:
 
 | Meter | State | What the guard does |
 | --- | --- | --- |
 | filling | `SUSPICIOUS` | Stops for a beat, then creeps toward you at patrol speed |
 | full | `CHASE` | Runs an A\* route to you, or to where it last saw you |
 | - | `ATTACK` | Swings once it is within arm's reach |
-| - | `SEARCH` | Walks to the last place it saw you and sweeps in place |
+| - | `SEARCH` | Walks to the last place it saw *or heard* you and sweeps in place |
 | draining | `RETURN` | Walks back to the post it left, then resumes patrol |
 
 The two rates are deliberately asymmetric: the meter fills in about 1.7 seconds
@@ -140,7 +159,9 @@ through an injected `onHit` callback rather than reaching into the scene.
 
 `F1` draws what the guard believes: the vision cone and its range, the sight ray
 this frame (green clear, red with a cross where a wall cuts it), the arrival
-radius, the A\* route it is walking and every patrol waypoint with its order.
+radius, the A\* route it is walking and every patrol waypoint with its order. It
+also draws the circle the guards are listening to - the player's noise radius as
+the game actually computes it, which is not there at all while sneaking.
 
 ## What works today
 
@@ -148,8 +169,11 @@ radius, the A\* route it is walking and every patrol waypoint with its order.
 - They see the player by range, field of view **and** a clear line of sight, so
   walls and corners hide you, and their certainty builds over time instead of
   switching on the first hint of a sighting.
+- They hear the player's racket through walls, get suspicious about it, come to
+  look, and search where they last heard it - but a chase still needs eyes on
+  the player, so noise never hunts you down on its own.
 - They creep toward a player they are unsure about, chase along an A\* route,
-  search where they last saw you, and return to the post they abandoned.
+  search where they last saw or heard you, and return to the post they abandoned.
 - They swing when they get close enough. A hit costs a point of health and
   leaves a short window of blinking invulnerability, so two guards swinging on
   the same frame cannot cost two points between them. Three hits and you are
@@ -163,10 +187,10 @@ radius, the A\* route it is walking and every patrol waypoint with its order.
 
 Known gaps, in the order they are planned:
 
-- **Nothing is heard yet.** The player already computes a noise radius for
-  sneaking, walking and sprinting; no guard listens to it, and lifting a chip
-  makes no sound either, so there is no way to draw a guard to a spot or to blow
-  a silent approach at the last second.
+- **Only the player makes a noise.** Chips and the door are silent when they are
+  handled, and guards cannot tell each other anything, so there is no way to
+  throw a sound and draw a patrol off its route: everything a guard hears, it
+  hears from you.
 - The level and its difficulty are fixed: one map, two chips, two guards, no
   timer and no score. A run is won or lost, and then it is `R`.
 - A guard that searches always runs its full time budget in one spot, rather
@@ -182,8 +206,9 @@ Known gaps, in the order they are planned:
 
 ```
 src/
-  ai/        pure logic: StateMachine, states, Perception, Alertness,
-             Pathfinder, PathFollower, PriorityQueue    (no Phaser import)
+  ai/        pure logic: StateMachine, states, Perception, Hearing,
+             Alertness, Pathfinder, PathFollower, PriorityQueue
+                                                       (no Phaser import)
   world/     pure logic: Grid, LevelData, LineOfSight, Mission,
              geometry                                  (no Phaser import)
   entities/  thin Phaser wrappers: Player, Enemy
