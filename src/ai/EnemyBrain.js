@@ -1,6 +1,8 @@
 import { CONFIG } from '../config.js';
 import { Timer } from '../utils/Timer.js';
 import { degToRad } from '../world/geometry.js';
+import { Pathfinder } from './Pathfinder.js';
+import { PathFollower } from './PathFollower.js';
 import { Perception } from './Perception.js';
 import { StateMachine } from './StateMachine.js';
 import { STATE, createGuardStates } from './states.js';
@@ -57,6 +59,16 @@ export class EnemyBrain {
     this.perception = new Perception({
       canSee: lineOfSight ? (self, target) => lineOfSight.canSee(self, target) : null,
     });
+
+    // A guard with no grid still works: it just steers straight at whatever
+    // it wants to reach. That keeps the brain usable in unit tests.
+    this.pathfinder = grid ? new Pathfinder(grid) : null;
+    this.follower = new PathFollower();
+    this.repathTimer = new Timer(CONFIG.enemy.repathInterval);
+    this.pathTarget = null;
+    this.lastPath = null;
+    this.lastPathResult = null;
+    this._lastReachFailed = false;
 
     this.fsm = new StateMachine({
       states: createGuardStates(),
@@ -146,8 +158,9 @@ export class EnemyBrain {
    * Moves by velocity x dt, refusing to enter a solid tile.
    *
    * If the full step is blocked it retries on each axis alone, so the guard
-   * slides along a wall instead of stopping dead. Phase 6 replaces this with
-   * real A\* path following - this is a safety net, not a navigation system.
+   * slides along a wall instead of stopping dead. Navigation is handled by
+   * A\* plus the path follower; this is the last line of defence that keeps a
+   * guard out of the walls if a path ever grazes a corner.
    */
   _integrate(dt) {
     const dx = this.velocity.x * dt;
@@ -197,6 +210,7 @@ export class EnemyBrain {
     this.waitTimer.reset();
     this.lookAroundAngle = 0;
     this.lookAroundDirection = 1;
+    this._clearPath();
   }
 
   patrolStep(dt) {
@@ -219,14 +233,15 @@ export class EnemyBrain {
       return;
     }
 
-    const dist = this.steerTo(this.currentWaypoint, CONFIG.enemy.patrolSpeed);
+    const arrived = this.navigateTo(this.currentWaypoint, CONFIG.enemy.patrolSpeed, dt);
 
-    if (dist <= CONFIG.enemy.arriveRadius) {
+    if (arrived) {
       this.velocity = { x: 0, y: 0 };
       this.waiting = true;
       this.lookAroundAngle = 0;
       this._faceNextWaypoint();
       this.waitTimer.start();
+      this._clearPath();
     }
   }
 
@@ -249,7 +264,8 @@ export class EnemyBrain {
   }
 
   /** Sweeps the head back and forth across `baseHeading`. */
-  _lookAround(dt) {    const sweep = degToRad(CONFIG.enemy.lookAroundSweep);
+  _lookAround(dt) {
+    const sweep = degToRad(CONFIG.enemy.lookAroundSweep);
 
     this.lookAroundAngle += this.lookAroundDirection * degToRad(CONFIG.enemy.lookAroundRate) * dt;
 
@@ -277,14 +293,15 @@ export class EnemyBrain {
     this.returnTarget = this.currentWaypoint;
     this.waiting = false;
     this.waitTimer.reset();
+    this._clearPath();
   }
 
-  chaseStep() {
+  chaseStep(dt) {
     // Chase the player while visible, and the last place they were seen
     // while not. Chasing a stale position is what stops a guard ploughing
     // into the wall the player just ran behind.
     const target = this.canSeeTarget() ? this.target : (this.lastKnownPos ?? this.target);
-    this.steerTo(target, CONFIG.enemy.chaseSpeed);
+    this.navigateTo(target, CONFIG.enemy.chaseSpeed, dt);
   }
 
   // ----------------------------------------------------------------- return
@@ -293,6 +310,7 @@ export class EnemyBrain {
     this.returnTarget = this.waypoints[this.returnIndex] ?? { ...this.spawn };
     this.waiting = false;
     this.waitTimer.reset();
+    this._clearPath();
   }
 
   returnStep(dt) {
@@ -302,7 +320,7 @@ export class EnemyBrain {
       return;
     }
 
-    this.steerTo(this.returnTarget, CONFIG.enemy.patrolSpeed);
+    this.navigateTo(this.returnTarget, CONFIG.enemy.patrolSpeed, dt);
   }
 
   hasReachedPatrolPost() {
@@ -319,6 +337,73 @@ export class EnemyBrain {
     if (this.hasPatrolRoute) {
       this.waypointIndex = this.returnIndex;
     }
+  }
+
+  // ------------------------------------------------------------ navigation
+
+  /**
+   * Moves toward a point, routing around walls with A\* when a grid is
+   * available.
+   *
+   * @returns {boolean} whether the point has been reached
+   */
+  navigateTo(target, speed, dt) {
+    if (!this.pathfinder) {
+      return this.steerTo(target, speed) <= CONFIG.enemy.arriveRadius;
+    }
+
+    this._maybeRepath(target, dt);
+
+    const status = this.follower.update(this, dt, speed);
+
+    if (status.stuck) {
+      // No measurable progress for a whole second: throw the route away and
+      // build a new one rather than grinding against the same corner.
+      this._clearPath();
+      this._repath(target);
+    }
+
+    return status.arrived;
+  }
+
+  _maybeRepath(target, dt) {
+    const intervalElapsed = this.repathTimer.hasElapsed(dt);
+
+    if (!this.follower.hasPath) {
+      // Rebuild straight away so movement never stalls waiting for a tick -
+      // unless the last attempt could not reach the target at all, in which
+      // case the interval applies so an unreachable goal cannot trigger a
+      // full grid search every single frame.
+      if (!this._lastReachFailed || intervalElapsed) this._repath(target);
+      return;
+    }
+
+    // Replanning is not free, so only pay for it once the target has moved a
+    // whole tile. A player circling on the spot otherwise forces the same
+    // route to be rebuilt on every tick.
+    const drifted =
+      !this.pathTarget ||
+      Math.hypot(target.x - this.pathTarget.x, target.y - this.pathTarget.y) > this.grid.tileSize;
+
+    if (intervalElapsed && drifted) this._repath(target);
+  }
+
+  _repath(target) {
+    const result = this.pathfinder.findPath(this.position, target);
+
+    this.follower.setPath(result.path, this);
+    this.pathTarget = { x: target.x, y: target.y };
+    this.lastPath = result.path;
+    this.lastPathResult = result;
+    this._lastReachFailed = !result.reached;
+  }
+
+  _clearPath() {
+    this.follower.clear();
+    this.pathTarget = null;
+    this.lastPath = null;
+    this._lastReachFailed = false;
+    this.repathTimer.reset();
   }
 
   // ------------------------------------------------------------------ reset

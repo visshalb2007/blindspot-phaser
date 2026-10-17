@@ -63,6 +63,23 @@ export class Timer {
     this.elapsed += dt;
     return this.done;
   }
+
+  /**
+   * Repeating mode: returns true once per `duration`, restarting itself and
+   * carrying the remainder forward so the cadence does not drift.
+   *
+   * Used for periodic work such as re-planning a route, where the interesting
+   * question is "is it time yet?" rather than "has it finished?".
+   */
+  hasElapsed(dt) {
+    if (this.duration <= 0) return true;
+
+    this.elapsed += dt;
+    if (this.elapsed < this.duration) return false;
+
+    this.elapsed -= this.duration;
+    return true;
+  }
 }
 
 export default Timer;

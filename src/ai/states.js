@@ -83,8 +83,8 @@ export function createGuardStates() {
         brain.onEnterChase();
       },
 
-      update(brain, _dt, fsm) {
-        brain.chaseStep();
+      update(brain, dt, fsm) {
+        brain.chaseStep(dt);
 
         // Losing sight ends the chase for now. Phase 7 puts SUSPICIOUS and
         // SEARCH in between, but the rule "no sight, no chase" is the same.
