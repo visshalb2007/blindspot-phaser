@@ -180,10 +180,7 @@ describe('Pathfinder.findPath', () => {
 
   it('returns the closest reachable cell when the goal is sealed off', () => {
     const split = new Grid(SPLIT_ROOMS);
-    const result = new Pathfinder(split).findPath(
-      split.cellToWorld(1, 1),
-      split.cellToWorld(7, 1),
-    );
+    const result = new Pathfinder(split).findPath(split.cellToWorld(1, 1), split.cellToWorld(7, 1));
 
     expect(result.reached).toBe(false);
     expect(result.path.length).toBeGreaterThan(0);
@@ -251,5 +248,63 @@ describe('Pathfinder on the shipped level', () => {
     const result = pf.findPath(grid.spawn, grid.exit);
     expect(result.visited).toBeGreaterThan(0);
     expect(result.visited).toBeLessThan(grid.cols * grid.rows);
+  });
+});
+
+describe('search cost', () => {
+  const grid = new Grid(LEVEL_ROWS);
+  const pf = new Pathfinder(grid);
+
+  /**
+   * Measured on this level: 56 cells expanded on average across the routes
+   * that matter, 111 for the worst of them. The budget is deliberately loose,
+   * because it is here to catch a heuristic that has stopped being octile -
+   * which sends expansion towards the whole 450-cell grid - not to pin a number
+   * that moving one wall would shift. `npm run bench` is what reports the
+   * actual times.
+   */
+  const VISITED_BUDGET = 220;
+
+  it('expands a small fraction of the grid on every route that matters', () => {
+    const places = [grid.spawn, ...grid.waypoints, grid.exit];
+
+    for (const from of places) {
+      for (const to of places) {
+        const result = pf.findPath(from, to);
+        expect(result.visited, `visited ${result.visited} cells`).toBeLessThan(VISITED_BUDGET);
+      }
+    }
+  });
+
+  it('costs exactly the same for the same question asked twice', () => {
+    const first = pf.findPath(grid.spawn, grid.exit);
+    const second = pf.findPath(grid.spawn, grid.exit);
+
+    expect(second.visited).toBe(first.visited);
+    expect(second.path).toEqual(first.path);
+  });
+
+  it('turns a staircase into one straight leg on open ground', () => {
+    const open = new Grid(OPEN_ROOM);
+    const result = new Pathfinder(open).findPath(open.cellToWorld(1, 1), open.cellToWorld(6, 3));
+
+    expect(result.path).toHaveLength(2);
+  });
+
+  it('cuts a walk across the level down to a handful of legs', () => {
+    const result = pf.findPath(grid.spawn, grid.exit);
+
+    // The staircase is 34 cells; smoothing leaves 7 waypoints, and that
+    // reduction is what stops a guard visibly zig-zagging down a corridor.
+    expect(result.path.length).toBeLessThanOrEqual(10);
+    expect(pf.lastSearch.cells).toBeGreaterThan(20);
+  });
+
+  it('reports the cost of its last search, which is what the benchmark reads', () => {
+    pf.findPath(grid.spawn, grid.exit);
+
+    expect(pf.lastSearch.reached).toBe(true);
+    expect(pf.lastSearch.visited).toBeGreaterThan(0);
+    expect(pf.lastSearch.points).toBeLessThanOrEqual(pf.lastSearch.cells);
   });
 });
