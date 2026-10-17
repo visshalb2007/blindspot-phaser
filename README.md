@@ -8,13 +8,16 @@ post. Take the data chips, reach the door, and do not get caught. Built with
 Phaser 3 and Vite in plain JavaScript, with every AI system written from scratch
 and unit tested.
 
-> Status: Phases 0-9, and the level is winnable. Two chips and a door that stays
-> shut until both are in hand. Guards patrol, check range, cone *and* a clear
-> line before they believe their eyes, and listen for the racket you make around
-> corners; a sighting only commits them once a certainty meter fills, and noise
-> fills that same meter but can never finish the job on its own - glance, look
-> closer, hunt, search where they last had you, go back to the post. A landed
-> blow costs a point of health; three of them and the run is over.
+> Status: Phases 0-10. The game opens on a start page: a briefing, the guards on
+> shift, and a record of your runs, with the level itself patrolling behind it in
+> shadow mode, nobody at the controls. Two chips and a door that stays shut until
+> both are in hand. Guards patrol, check range, cone *and* a clear line before
+> they believe their eyes, and listen for the racket you make around corners; a
+> sighting only commits them once a certainty meter fills, and noise fills that
+> same meter but can never finish the job on its own - glance, look closer, hunt,
+> search where they last had you, go back to the post. A landed blow costs a
+> point of health; three of them and the run is over. Every run is timed, and
+> both ways it can end are remembered.
 
 ## Prerequisites
 
@@ -82,6 +85,40 @@ failure rather than a stutter.
 | `Ctrl` | Sneak (silent) |
 | `F1` | Toggle the debug overlay |
 | `R` | Restart the level |
+| `Esc` | Leave the run and go back to the start page |
+
+On the start page, `Space`, `Enter` or a click starts a run.
+
+## The start page
+
+The game opens on a dashboard rather than in a run. Four panels say what the job
+is, which keys do it, who is on shift and how they think, and what you have done
+so far.
+
+The numbers on it are the real ones, and that is the whole point of it being a
+module rather than a wall of text calls. The chip count is read off the level,
+the roster comes from the same rule `GameScene` spawns its guards from, the sight
+range and the certainty thresholds are quoted from the config the guards actually
+run on, and the record is what you have actually done. Retune a guard and the page
+describes the new one - `tests/Briefing.test.js` asserts exactly that, because a
+dashboard that quietly lies is worse than no dashboard.
+
+The level behind it is live: the same `Game` scene, in a *shadow* mode where the
+walls, the chips, the door and both guards are all there and the guards walk
+their loop, with no player in the level, no HUD, no input and no way for anything
+to be caught. They are handed a target nobody is standing at, so they patrol with
+nothing to find - which is the honest way to show a level nobody has started, and
+makes the backdrop a smoke test: if the AI stops working, the start page stops
+moving.
+
+Your record is kept in `localStorage` under one versioned key, by
+`world/RunStats.js`, which is handed its storage rather than reaching for the
+browser itself. It counts runs begun, escapes, captures, chips lifted and your
+best time, and it survives a reload. Every read of it is treated as hostile - the
+value came off a disk, possibly written by an older build, possibly hand-edited -
+so a corrupt scoreboard starts over rather than stopping the game from opening.
+Runs are timed by a clock that counts up on the HUD line, stops with the run, and
+only ever hands a best time to an escape.
 
 ## The job
 
@@ -97,7 +134,11 @@ Get every chip, then leave through the door.
   can be finished, so a future map edit that walls off a chip or the door fails
   a test rather than making the game quietly impossible.
 - Getting caught is the other full stop. Both ends of a run hold the world still
-  and wait for `R`.
+  and wait for `R`, and both of them are written to the record.
+- Runs are timed. The clock is on the HUD line, it stops with the run so the time
+  on the banner is the time the run took, and the start page keeps the fastest
+  escape. `R` counts as a new run rather than a continuation, which is what makes
+  the record read as a history.
 
 ## How the AI works
 
@@ -181,8 +222,12 @@ the game actually computes it, which is not there at all while sneaking.
 - The player walks, sprints on a stamina bar and sneaks silently.
 - Two chips and a door make up the objective, so there is now something to win
   as well as something to lose.
-- A HUD shows health, the chip count and whether the door is open, plus each
-  guard's certainty, which is otherwise invisible.
+- A start page: the briefing, the guards on shift, how they think, and your own
+  record, with the level patrolling behind it and nobody at the controls.
+- Every run is timed, and the record counts runs begun, escapes, captures, chips
+  lifted and your best time - kept between sessions.
+- A HUD shows the run clock, health, the chip count and whether the door is open,
+  plus each guard's certainty, which is otherwise invisible.
 - `F1` toggles the debug overlay on top of the A\* route and vision cone.
 
 Known gaps, in the order they are planned:
@@ -191,8 +236,11 @@ Known gaps, in the order they are planned:
   handled, and guards cannot tell each other anything, so there is no way to
   throw a sound and draw a patrol off its route: everything a guard hears, it
   hears from you.
-- The level and its difficulty are fixed: one map, two chips, two guards, no
-  timer and no score. A run is won or lost, and then it is `R`.
+- The level and its difficulty are fixed: one map, two chips, two guards, one
+  speed for the lot of it. Runs are timed and the record is kept, but nothing
+  scores a run beyond how quickly you got out.
+- The record is per-browser and anonymous. It lives in `localStorage`, so
+  clearing site data clears it, and there is nowhere for it to go but here.
 - A guard that searches always runs its full time budget in one spot, rather
   than widening the sweep around the last known position.
 - Routes land on tile centres, which is right for a patrol post and wrong for a
@@ -210,10 +258,10 @@ src/
              Alertness, Pathfinder, PathFollower, PriorityQueue
                                                        (no Phaser import)
   world/     pure logic: Grid, LevelData, LineOfSight, Mission,
-             geometry                                  (no Phaser import)
+             Roster, RunStats, Briefing, geometry        (no Phaser import)
   entities/  thin Phaser wrappers: Player, Enemy
-  scenes/    thin Phaser wrappers: Boot, Game
-  utils/     pure logic: Timer, Stamina, Health
+  scenes/    thin Phaser wrappers: Boot, Dashboard, Game
+  utils/     pure logic: Timer, Clock, Stamina, Health
 tests/       Vitest suites for the pure modules
 scripts/     bench.js, the AI performance benchmark
 ```
