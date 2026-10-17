@@ -39,3 +39,29 @@ export function normalize(x, y) {
 export function lerp(from, to, t) {
   return from + (to - from) * t;
 }
+
+export const TAU = Math.PI * 2;
+
+export function degToRad(degrees) {
+  return (degrees * Math.PI) / 180;
+}
+
+export function radToDeg(radians) {
+  return (radians * 180) / Math.PI;
+}
+
+/**
+ * Signed shortest difference between two angles, in the range (-PI, PI].
+ *
+ * The naive `a - b` is wrong across the wrap point: 179 degrees and -179
+ * degrees are two degrees apart, but subtracting gives 358. Because guards
+ * face every direction over a patrol, every cone test goes through here.
+ * Phaser's `Angle.ShortestBetween` would do the job, but the AI depends on
+ * this being right, so it is written out and unit tested.
+ */
+export function angleDifference(a, b) {
+  let diff = (a - b) % TAU;
+  if (diff > Math.PI) diff -= TAU;
+  if (diff < -Math.PI) diff += TAU;
+  return diff;
+}
