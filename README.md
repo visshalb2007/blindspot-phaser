@@ -6,7 +6,10 @@ path, lose you, search the last place they saw you, and walk back to their
 post. Built with Phaser 3 and Vite in plain JavaScript, with every AI system
 written from scratch and unit tested.
 
-> Status: Phase 0 (tooling). The game itself lands over the next phases.
+> Status: Phase 4 (the MVP) - tagged `v0.1-mvp`. Guards patrol the level,
+> notice the player, chase along an A\* path and go back to their post; you can
+> walk, sprint and sneak around them. Line of sight, search behaviour, the
+> objective and the alarm come next.
 
 ## Prerequisites
 
@@ -51,21 +54,46 @@ npm run lint      # ESLint
 Every guard runs the same loop, and each stage is a separate testable module:
 
 ```
-Perception  ->  Blackboard  ->  FSM  ->  PathFollower  ->  Enemy
-(what can it   (what does it   (what    (how does it     (velocity +
- see/hear?)     remember?)     now?)    get there?)      visuals)
+Perception  ->  FSM  ->  Pathfinder  ->  PathFollower  ->  Enemy
+(what can it   (what    (where does    (which way now?)  (position +
+ see?)          now?)    it go?)                          visuals)
 ```
+
+The guard owns its own position and integrates its own movement, so a test can
+step a whole patrol headlessly and assert on the exact state sequence. Nothing
+in `src/ai` or `src/world` imports Phaser.
+
+`F1` draws what the guard believes: the vision cone and its range, the arrival
+radius, the A\* route it is walking and every patrol waypoint with its order.
+
+## What works today
+
+- Two guards patrol the shared waypoint loop, pausing and scanning at each post.
+- They see the player by range and field of view, chase along an A\* route and
+  return to the post they abandoned when they lose you.
+- The player walks, sprints on a stamina bar and sneaks silently.
+- `R` restarts the level; `F1` toggles the debug overlay.
+
+Known gaps, in the order they are planned:
+
+- **No line of sight yet.** A guard can see through a wall if you are inside its
+  cone and range.
+- **No suspicion, no search.** Losing sight sends a guard straight home, so a
+  guard that keeps glimpsing you flickers between chase and return instead of
+  investigating.
+- The chips and the exit are drawn but not collectable, and nothing happens yet
+  when a guard reaches you.
 
 ## Architecture
 
 ```
 src/
-  ai/        pure logic: StateMachine, states, Perception, Blackboard,
-             Pathfinder, PathFollower   (no Phaser import)
-  world/     pure logic: Grid, LineOfSight, geometry
+  ai/        pure logic: StateMachine, states, Perception,
+             Pathfinder, PathFollower, PriorityQueue   (no Phaser import)
+  world/     pure logic: Grid, LevelData, geometry     (no Phaser import)
   entities/  thin Phaser wrappers: Player, Enemy
   scenes/    Boot, Game
-  utils/     Timer, debug helpers
+  utils/     Timer, Stamina
 tests/       Vitest suites for the pure modules
 ```
 
@@ -76,9 +104,9 @@ tests/       Vitest suites for the pure modules
 - **Vite** - dev server and bundler.
 - **Vitest**, **ESLint**, **Prettier** - development only.
 
-No pathfinding or AI library is used. No textures or audio files ship with the
-game: every texture is generated in code at boot and every sound is synthesised
-with the WebAudio API.
+No pathfinding or AI library is used. No texture or audio files ship with the
+game: textures are generated in code at boot, and sounds are synthesised with
+the WebAudio API instead of being loaded as assets.
 
 ## Credits
 
