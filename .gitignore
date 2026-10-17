@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist.zip
+*.local
+
+# test / tooling caches
+coverage/
+.vite/
+.vitest/
+*.tsbuildinfo
+
+# editor + os noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# logs
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
