@@ -204,7 +204,13 @@ record('LOS per ray', losUs, BUDGET.losMeanUs, 'us');
 
 /**
  * The realistic load: real guards on the real route, and a player that walks
- * the same circuit so the guards repeatedly pick it up, lose it and re-plan.
+ * that route *against* them.
+ *
+ * Walking with the guards put the player behind them, where a cone never looks,
+ * and once certainty had to build over time rather than arriving with the first
+ * glimpse almost nothing was picked up. Coming the other way means meeting each
+ * guard head on: it sees the player, takes a moment, hunts, loses them and
+ * searches, which is the state mix worth measuring.
  *
  * Counting searches through a wrapper rather than instrumenting the brain keeps
  * production code free of benchmark hooks.
@@ -229,9 +235,9 @@ const circuitLength = circuit.reduce((sum, point, i) => {
   return sum + Math.hypot(next.x - point.x, next.y - point.y);
 }, 0);
 
-/** The point `distance` px along the circuit, wrapping round it. */
+/** The point `distance` px along the circuit, wrapping round it either way. */
 function pointAlong(polyline, distance) {
-  let remaining = distance % circuitLength;
+  let remaining = ((distance % circuitLength) + circuitLength) % circuitLength;
 
   for (let i = 0; i < polyline.length; i += 1) {
     const a = polyline[i];
@@ -247,6 +253,28 @@ function pointAlong(polyline, distance) {
   }
 
   return { x: polyline[0].x, y: polyline[0].y };
+}
+
+/**
+ * How far the stand-in player has walked by `frame`, in px, walking the circuit
+ * backwards and stopping every couple of seconds to look around.
+ *
+ * The pauses matter. Certainty has to build over about a second and a half of
+ * unbroken sight, and a guard only closes on a walking player at the difference
+ * of their two speeds, so somebody who never stops crosses a cone and is gone
+ * before any guard works up past suspicion. A player who stops is the case that
+ * produces hunts.
+ */
+function walkedDistance(frame) {
+  const seconds = frame * DT;
+  const walk = 2;
+  const rest = 2;
+  const cycle = walk + rest;
+
+  const cycles = Math.floor(seconds / cycle);
+  const inCycle = seconds % cycle;
+
+  return -(cycles * walk + Math.min(inCycle, walk)) * CONFIG.player.speed;
 }
 
 function simulate(seconds, playerMoves) {
@@ -288,7 +316,7 @@ function simulate(seconds, playerMoves) {
 
   for (let frame = 0; frame < frames; frame += 1) {
     if (playerMoves) {
-      const point = pointAlong(circuit, (frame * CONFIG.player.speed * DT) % circuitLength);
+      const point = pointAlong(circuit, walkedDistance(frame));
       player.x = point.x;
       player.y = point.y;
     }
