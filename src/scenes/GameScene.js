@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config.js';
 import { Grid } from '../world/Grid.js';
 import { LEVEL_ROWS } from '../world/LevelData.js';
+import { Mission } from '../world/Mission.js';
 import { clampDelta } from '../utils/Timer.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
@@ -27,11 +28,14 @@ export default class GameScene extends Phaser.Scene {
 
     this.debugOn = false;
     this.caught = false;
-    this.caughtText = null;
+    this.statusText = null;
+
+    this.mission = new Mission({ chips: this.grid.chips, exit: this.grid.exit });
 
     this._drawFloor();
     this._buildWalls();
     this._drawMarkers();
+    this._paintExit();
 
     this.player = new Player(this, this.grid.spawn.x, this.grid.spawn.y);
     this.physics.add.collider(this.player.sprite, this.walls);
@@ -51,11 +55,15 @@ export default class GameScene extends Phaser.Scene {
   update(_time, delta) {
     const dt = clampDelta(delta);
 
-    // Being caught is a full stop: the guards hold the pose they caught you in
-    // and R is the only way out of it.
-    if (this.caught) return;
+    // Being caught or walking out with the loot is a full stop: the guards hold
+    // the pose they left you in and R is the only way out of it.
+    if (this.caught || this.mission.won) return;
 
     this.player.update(dt);
+
+    // Chips and the door come first: a chip is taken on the frame the player
+    // reached it, and a run that ends here does not also take a swing.
+    if (this._updateMission()) return;
 
     // Every guard senses the same player position for the frame, so two guards
     // can never disagree about where the player was.
@@ -96,13 +104,48 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Chips and the door, kept because both change as the run goes on: a taken
+   * chip's sprite is put away and the door's sprite brightens once it opens.
+   */
   _drawMarkers() {
-    if (this.grid.exit) {
-      this.add.image(this.grid.exit.x, this.grid.exit.y, 'exit').setDepth(2);
+    this.chipSprites = this.grid.chips.map((chip) =>
+      this.add.image(chip.x, chip.y, 'chip').setDepth(2),
+    );
+
+    this.exitSprite = this.grid.exit
+      ? this.add.image(this.grid.exit.x, this.grid.exit.y, 'exit').setDepth(2)
+      : null;
+  }
+
+  _clearMarkers() {
+    for (const sprite of this.chipSprites) {
+      if (sprite) sprite.destroy();
     }
 
-    for (const chip of this.grid.chips) {
-      this.add.image(chip.x, chip.y, 'chip').setDepth(2);
+    if (this.exitSprite) this.exitSprite.destroy();
+
+    this.chipSprites = [];
+    this.exitSprite = null;
+  }
+
+  /**
+   * A shut door is a faint outline; an open one is solid, and gives a single
+   * pulse when the last chip turns it on.
+   */
+  _paintExit() {
+    if (!this.exitSprite) return;
+
+    const open = this.mission.isUnlocked;
+    this.exitSprite.setAlpha(open ? 1 : 0.35);
+
+    if (open) {
+      this.tweens.add({
+        targets: this.exitSprite,
+        scale: 1.3,
+        duration: 180,
+        yoyo: true,
+      });
     }
   }
 
@@ -163,27 +206,85 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * The lose state: the world stops and waits for R.
+   * Chips first, then the door.
    *
-   * There is no objective to win yet, so this is deliberately the smallest
-   * honest thing - a caught player, a message, and the control the README
-   * already documents.
+   * @returns {boolean} whether the run ended on this frame, so the caller can
+   *   stop before the guards take a swing at a player who has already won.
    */
-  _catchPlayer() {
-    this.caught = true;
+  _updateMission() {
+    const taken = this.mission.tryCollect(this.player.position);
+    if (taken) this._onChipTaken(taken);
+
+    if (!this.mission.reachedExit(this.player.position)) return false;
+
+    this._winMission();
+    return true;
+  }
+
+  /**
+   * A chip left the floor.
+   *
+   * The sprite pops and fades rather than simply vanishing, so the player can
+   * see which one they got instead of inferring it from the HUD.
+   */
+  _onChipTaken(chip) {
+    const index = this.mission.chips.indexOf(chip);
+    const sprite = this.chipSprites[index];
+    this.chipSprites[index] = null;
+
+    if (sprite) {
+      this.tweens.add({
+        targets: sprite,
+        scale: 1.8,
+        alpha: 0,
+        duration: 220,
+        onComplete: () => sprite.destroy(),
+      });
+    }
+
+    this._paintExit();
+  }
+
+  _winMission() {
     this.player.sprite.setVelocity(0, 0);
     this._updateHud();
+    this._showStatus('MISSION COMPLETE - press R for another go', '#88ff99');
+  }
 
-    this.caughtText = this.add
-      .text(CONFIG.map.widthPx / 2, CONFIG.map.heightPx / 2, 'CAUGHT - press R to try again', {
+  /**
+   * The full-stop banner.
+   *
+   * Getting caught and getting away are the same thing on screen - the world
+   * holds still and R is the way out - so they share one piece of text rather
+   * than two that could both be up at once.
+   */
+  _showStatus(message, color) {
+    if (this.statusText) this.statusText.destroy();
+
+    this.statusText = this.add
+      .text(CONFIG.map.widthPx / 2, CONFIG.map.heightPx / 2, message, {
         fontFamily: 'ui-monospace, monospace',
         fontSize: '18px',
-        color: '#ff8888',
+        color,
         backgroundColor: '#000000cc',
         padding: { x: 12, y: 8 },
       })
       .setOrigin(0.5)
       .setDepth(30);
+  }
+
+  /**
+   * The lose state: the world stops and waits for R.
+   *
+   * There is no way to walk it off - three hits and the run is over - so this
+   * is deliberately the smallest honest thing: a caught player, a message, and
+   * the control the README already documents.
+   */
+  _catchPlayer() {
+    this.caught = true;
+    this.player.sprite.setVelocity(0, 0);
+    this._updateHud();
+    this._showStatus('CAUGHT - press R to try again', '#ff8888');
   }
 
   // ------------------------------------------------------------------- debug
@@ -202,9 +303,15 @@ export default class GameScene extends Phaser.Scene {
       enemy.reset();
     }
 
-    if (this.caughtText) {
-      this.caughtText.destroy();
-      this.caughtText = null;
+    // The chips come back, which means the sprites do too.
+    this.mission.reset();
+    this._clearMarkers();
+    this._drawMarkers();
+    this._paintExit();
+
+    if (this.statusText) {
+      this.statusText.destroy();
+      this.statusText = null;
     }
 
     this.caught = false;
@@ -212,7 +319,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Two lines of text: health, and how close each guard is to committing.
+   * Three lines of text: health, the objective, and how close each guard is to
+   * committing.
    *
    * The alertness meter is the one piece of state with no on-screen tell of its
    * own - the guards' labels already carry their state, and a guard's colour
@@ -235,7 +343,9 @@ export default class GameScene extends Phaser.Scene {
       Math.max(0, health.max - health.value),
     )}`;
 
-    const lines = [`HEALTH ${pips}`];
+    const door = this.mission.isUnlocked ? 'OPEN' : 'SHUT';
+    const chips = `${this.mission.collected}/${this.mission.total}`;
+    const lines = [`HEALTH ${pips}    CHIPS ${chips}    EXIT ${door}`];
 
     for (const enemy of this.enemies) {
       const brain = enemy.brain;
