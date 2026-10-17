@@ -1,6 +1,7 @@
 import { CONFIG } from '../config.js';
 import { Timer } from '../utils/Timer.js';
 import { degToRad } from '../world/geometry.js';
+import { LineOfSight } from '../world/LineOfSight.js';
 import { Pathfinder } from './Pathfinder.js';
 import { PathFollower } from './PathFollower.js';
 import { Perception } from './Perception.js';
@@ -56,8 +57,15 @@ export class EnemyBrain {
     this.lookAroundAngle = 0;
     this.lookAroundDirection = 1;
 
+    // Sight is range, cone *and* a clear line. The line test needs the grid, so
+    // it is only wired up when there is one; a brain built without a grid still
+    // works and can still be stepped in a unit test, it just sees through
+    // anything in the way.
+    this.lineOfSight = lineOfSight ?? (grid ? new LineOfSight(grid) : null);
+    this.sightLine = null;
+
     this.perception = new Perception({
-      canSee: lineOfSight ? (self, target) => lineOfSight.canSee(self, target) : null,
+      canSee: this.lineOfSight ? (self, target) => this._traceSight(self, target) : null,
     });
 
     // A guard with no grid still works: it just steers straight at whatever
@@ -130,6 +138,18 @@ export class EnemyBrain {
 
   canSeeTarget() {
     return this.sight.seen;
+  }
+
+  /**
+   * The line-of-sight test handed to `Perception`.
+   *
+   * It keeps the whole ray rather than just the answer, so the debug overlay
+   * can draw the very ray that decided this frame's sighting - and where a wall
+   * cut it short - without casting the same ray a second time.
+   */
+  _traceSight(self, target) {
+    this.sightLine = this.lineOfSight.trace(self, target);
+    return this.sightLine.clear;
   }
 
   // -------------------------------------------------------------- movement
@@ -428,6 +448,7 @@ export class EnemyBrain {
     this.lookAroundAngle = 0;
     this.lookAroundDirection = 1;
 
+    this.sightLine = null;
     this.perception.reset();
     this.fsm.reset();
     this.onEnterPatrol();
