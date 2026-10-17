@@ -2,13 +2,19 @@ import Phaser from 'phaser';
 
 import { CONFIG } from '../config.js';
 import { Grid } from '../world/Grid.js';
-import { LEVEL_ROWS } from '../world/LevelData.js';
+import { LEVELS, LEVEL_COUNT, DEFAULT_LEVEL, levelAt, configFor } from '../world/Levels.js';
 import { buildBriefing } from '../world/Briefing.js';
 import { RunStats, browserStorage } from '../world/RunStats.js';
 
 /** Where a panel puts its values, measured from the panel's left edge. */
 const LABEL_WIDTH = 112;
 const ROW_HEIGHT = 17;
+
+/** Below the ladder, which sits under the title. */
+const PANEL_TOP = 96;
+
+/** Phaser's names for the number keys, so a level can be picked with 1-5. */
+const DIGIT_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'];
 
 /**
  * The start page.
@@ -30,32 +36,56 @@ export default class DashboardScene extends Phaser.Scene {
     super('Dashboard');
   }
 
+  /**
+   * @param {{levelIndex?: number}} [data] which level is on the board. The scene
+   *   restarts itself when the selection changes, so this is how a selection
+   *   survives the rebuild.
+   */
+  init(data) {
+    this.levelIndex = data?.levelIndex ?? DEFAULT_LEVEL;
+  }
+
   create() {
+    this.started = false;
+    this.level = levelAt(this.levelIndex);
+
     // The level goes up first so the board has something to sit over, and it
     // goes up in shadow mode: guards walk the loop and never notice anything,
-    // because there is no player on the level yet to notice.
-    this.scene.launch('Game', { shadow: true });
+    // because there is no player on the level yet to notice. Relaunching it is
+    // what makes the backdrop follow the selection.
+    this.scene.stop('Game');
+    this.scene.launch('Game', { shadow: true, levelIndex: this.levelIndex });
     this.scene.bringToTop();
 
-    this.started = false;
-
     this.briefing = buildBriefing({
-      grid: new Grid(LEVEL_ROWS),
+      grid: new Grid(this.level.rows),
       stats: new RunStats({ storage: browserStorage() }),
+      config: configFor(this.level),
+      level: this.level,
     });
 
     this._drawDim();
     this._drawHeader();
+    this._drawLadder();
     this._drawPanels();
     this._drawHint();
 
     this.input.keyboard.on('keydown-SPACE', () => this.startRun());
     this.input.keyboard.on('keydown-ENTER', () => this.startRun());
     this.input.on('pointerdown', () => this.startRun());
+
+    // Pick a level: the number keys pick it outright, the arrows walk the
+    // ladder. Both rebuild the page, which is what makes the panels describe the
+    // level you are looking at rather than the one you started on.
+    LEVELS.forEach((_level, index) => {
+      this.input.keyboard.on(`keydown-${DIGIT_KEYS[index]}`, () => this.selectLevel(index));
+    });
+    this.input.keyboard.on('keydown-LEFT', () => this.selectLevel(this.levelIndex - 1));
+    this.input.keyboard.on('keydown-RIGHT', () => this.selectLevel(this.levelIndex + 1));
   }
 
   /**
-   * Hands over to a real run.
+   * Hands over to a real run of the level on the board.
    *
    * The level is started with an explicit payload rather than with none, and
    * that is not belt-and-braces: Phaser only overwrites a scene's stored data
@@ -72,7 +102,20 @@ export default class DashboardScene extends Phaser.Scene {
     this.started = true;
 
     this.scene.stop('Game');
-    this.scene.start('Game', { shadow: false });
+    this.scene.start('Game', { shadow: false, levelIndex: this.levelIndex });
+  }
+
+  /**
+   * Moves the board to another level.
+   *
+   * Out-of-range indices are not an error: `levelAt` clamps them and the arrows
+   * wrap, so holding a direction just walks the ladder round.
+   */
+  selectLevel(index) {
+    const wrapped = ((index % LEVEL_COUNT) + LEVEL_COUNT) % LEVEL_COUNT;
+    if (levelAt(wrapped).id === this.level.id) return;
+
+    this.scene.restart({ levelIndex: wrapped });
   }
 
   /** Drops the level back to a backdrop, so the panels read over it. */
@@ -107,6 +150,36 @@ export default class DashboardScene extends Phaser.Scene {
   }
 
   /**
+   * The five levels as a ladder you can read at a glance: the selected one
+   * marked and lit, the rest dimmed. One text object each, so the selected one
+   * can be highlighted without redrawing the whole row - and measured from the
+   * text's own width, so a longer level name cannot push the others off.
+   */
+  _drawLadder() {
+    let x = 20;
+
+    LEVELS.forEach((level, index) => {
+      const selected = index === this.levelIndex;
+
+      const text = this.add.text(x, 70, `${selected ? '>' : ' '} ${index + 1} ${level.name}`, {
+        fontFamily: CONFIG.ui.font,
+        fontSize: '12px',
+        color: selected ? CONFIG.ui.hint : '#5c6a90',
+      });
+
+      x += text.width + 14;
+    });
+
+    this.add
+      .text(CONFIG.map.widthPx - 20, 70, 'number keys or left/right', {
+        fontFamily: CONFIG.ui.font,
+        fontSize: '12px',
+        color: '#5c6a90',
+      })
+      .setOrigin(1, 0);
+  }
+
+  /**
    * Two columns of panels: the briefing on the left, the guards and the record
    * on the right, which is roughly level and leaves the bottom of the screen
    * showing the patrol the page is describing.
@@ -119,7 +192,7 @@ export default class DashboardScene extends Phaser.Scene {
     ];
 
     for (const column of columns) {
-      let y = 76;
+      let y = PANEL_TOP;
 
       for (const section of column.sections) {
         y += this._drawPanel(column.x, y, column.width, section) + 12;
