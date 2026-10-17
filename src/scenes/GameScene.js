@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 
 import { CONFIG } from '../config.js';
 import { Grid } from '../world/Grid.js';
-import { LEVEL_ROWS } from '../world/LevelData.js';
+import { DEFAULT_LEVEL, levelAt } from '../world/Levels.js';
 import { Mission } from '../world/Mission.js';
 import { guardPosts } from '../world/Roster.js';
 import { RunStats, browserStorage } from '../world/RunStats.js';
@@ -34,17 +34,20 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * @param {{shadow?: boolean}} [data] `shadow` runs the level with nobody
-   *   playing: the guards patrol and nothing else ever happens. It is the same
-   *   scene rather than a second one that draws a level, so the backdrop on the
-   *   start page cannot drift from the game it is standing behind.
+   * @param {{shadow?: boolean, levelIndex?: number}} [data] `shadow` runs the
+   *   level with nobody playing: the guards patrol and nothing else ever
+   *   happens. It is the same scene rather than a second one that draws a
+   *   level, so the backdrop on the start page cannot drift from the game it is
+   *   standing behind. `levelIndex` picks which of the five levels to build.
    */
   init(data) {
     this.shadow = Boolean(data?.shadow);
+    this.levelIndex = data?.levelIndex ?? DEFAULT_LEVEL;
+    this.level = levelAt(this.levelIndex);
   }
 
   create() {
-    this.grid = new Grid(LEVEL_ROWS);
+    this.grid = new Grid(this.level.rows);
     for (const warning of this.grid.warnings) {
       console.warn(`[level] ${warning}`);
     }
@@ -212,14 +215,13 @@ export default class GameScene extends Phaser.Scene {
 
   /**
    * Guards start spread evenly around the shared waypoint loop, each facing the
-   * waypoint it is about to walk to.
-   *
-   * The posts come from `world/Roster.js`, which is the same rule the start page
-   * lists its roster from - so the guard count on the start page is the guard
-   * count here, by construction rather than by coincidence.
+   * waypoint it is about to walk to. How many is the level's call; the posts
+   * come from `world/Roster.js`, which is the same rule the start page lists its
+   * roster from - so the guard count on the start page is the guard count here,
+   * by construction rather than by coincidence.
    */
   _spawnGuards() {
-    this.enemies = guardPosts(this.grid).map(
+    this.enemies = guardPosts(this.grid, { count: this.level.guards }).map(
       (post) =>
         new Enemy(this, {
           name: post.name,
@@ -387,9 +389,12 @@ export default class GameScene extends Phaser.Scene {
    * Nothing is recorded for an abandoned run beyond the attempt that was
    * counted when it began: it is not an escape and it is not a capture, so it
    * does not get to look like either on the record.
+   *
+   * The level index goes back with it, so leaving a run returns you to the level
+   * you were on rather than to the first one.
    */
   _exitToDashboard() {
-    this.scene.start('Dashboard');
+    this.scene.start('Dashboard', { levelIndex: this.levelIndex });
   }
 
   /**
