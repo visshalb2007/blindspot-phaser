@@ -6,9 +6,9 @@ path, lose you, search the last place they saw you, and walk back to their
 post. Built with Phaser 3 and Vite in plain JavaScript, with every AI system
 written from scratch and unit tested.
 
-> Status: Phase 5 (line of sight). Guards patrol, check range, cone *and* a clear
-> line before they believe their eyes, chase along an A\* route and go back to
-> their post. Suspicion, search and the objective come next.
+> Status: Phases 0-6. Guards patrol, check range, cone *and* a clear line before
+> they believe their eyes, chase along an A\* route and go back to their post.
+> Suspicion, search and the objective come next.
 
 ## Prerequisites
 
@@ -36,7 +36,32 @@ npm run preview   # serve the built bundle
 npm test          # Vitest, once
 npm run test:watch
 npm run lint      # ESLint
+npm run bench     # AI performance against a frame budget
 ```
+
+## Performance
+
+`npm run bench` measures the hand-written AI on the shipped level: one A\* search,
+one line-of-sight ray, and a whole simulated frame of guards patrolling and
+chasing. It prints a table and exits non-zero if a budget is missed. A typical
+run on a desktop (Node 24, 2 guards):
+
+| Metric | Measured | Budget |
+| --- | --- | --- |
+| A\* median search | 0.027 ms | 0.5 ms |
+| A\* worst search | 0.19 ms | 5 ms |
+| Cells expanded per search | 56 of 450 | - |
+| Line of sight, per ray | 0.09 us | 20 us |
+| Whole AI frame, mean | 0.002 ms | 1 ms |
+| Whole AI frame, worst | 0.21 ms | 5 ms |
+
+At 60 Hz a frame is 16.7 ms, and a search costs about 0.2% of one, so there is
+roughly three orders of magnitude of headroom before the AI is what limits the
+frame. That is why the pathfinder is left allocating its maps per call rather
+than being rewritten around reusable buffers: the measurement says the
+allocation is not worth the complexity, and `tests/Pathfinder.test.js` keeps the
+expansion count honest so a heuristic regression shows up as a test failure
+rather than a stutter.
 
 ## Controls
 
@@ -102,6 +127,7 @@ src/
   scenes/    Boot, Game
   utils/     Timer, Stamina
 tests/       Vitest suites for the pure modules
+scripts/     bench.js, the AI performance benchmark
 ```
 
 ## External libraries and assets
