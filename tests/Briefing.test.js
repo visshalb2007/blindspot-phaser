@@ -5,6 +5,7 @@ import { Grid } from '../src/world/Grid.js';
 import { LEVEL_ROWS } from '../src/world/LevelData.js';
 import { RunStats, OUTCOME } from '../src/world/RunStats.js';
 import { buildBriefing, CONTROLS } from '../src/world/Briefing.js';
+import { guardPosts } from '../src/world/Roster.js';
 
 const grid = new Grid(LEVEL_ROWS);
 const HEADINGS = ['THE JOB', 'CONTROLS', 'THE GUARDS', 'HOW THEY THINK', 'YOUR RECORD'];
@@ -59,11 +60,12 @@ describe('buildBriefing', () => {
 
   it('lists the guards the level actually posts', () => {
     const guards = panel(buildBriefing({ grid }), 'THE GUARDS');
+    const posts = guardPosts(grid);
 
-    expect(guards['On shift']).toBe(String(CONFIG.enemy.count));
-    expect(guards['Postings']).toContain('guard-1');
-    expect(guards['Postings']).toContain('guard-2');
-    expect(guards['Patrol loop']).toContain('4 posts');
+    expect(guards['On shift']).toBe(`${posts.length} guards`);
+    expect(guards[posts[0].name]).toContain(`post ${posts[0].order}`);
+    expect(guards[posts[1].name]).toContain(`post ${posts[1].order}`);
+    expect(guards['The loop']).toContain('4 posts');
   });
 
   it('quotes the config rather than a remembered number', () => {
@@ -76,7 +78,7 @@ describe('buildBriefing', () => {
 
     const briefing = buildBriefing({ grid, config });
 
-    expect(panel(briefing, 'THE GUARDS')['On shift']).toBe('3');
+    expect(panel(briefing, 'THE GUARDS')['On shift']).toBe('3 guards');
     expect(panel(briefing, 'HOW THEY THINK').Sight).toContain('999px');
     expect(panel(briefing, 'HOW THEY THINK').Sight).toContain('45°');
     expect(panel(briefing, 'HOW THEY THINK').Searching).toContain('7s');
@@ -141,7 +143,7 @@ describe('buildBriefing', () => {
 
     expect(briefing.sections.map((section) => section.heading)).toEqual(HEADINGS);
     expect(briefing.subtitle).toContain(`${CONFIG.map.cols} x ${CONFIG.map.rows}`);
-    expect(panel(briefing, 'THE GUARDS')['Patrol loop']).toBe('none');
+    expect(panel(briefing, 'THE GUARDS')['The loop']).toBe('none, it stands and scans');
     expect(panel(briefing, 'YOUR RECORD')['Nothing yet']).toBeTruthy();
   });
 

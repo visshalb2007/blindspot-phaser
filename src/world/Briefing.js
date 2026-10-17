@@ -12,10 +12,10 @@ import { guardPosts } from './Roster.js';
  * documents the same list.
  */
 export const CONTROLS = Object.freeze([
-  { label: 'W A S D', value: 'move - the arrow keys work too' },
-  { label: 'Shift', value: 'sprint: fast, loud, costs stamina' },
-  { label: 'Ctrl', value: 'sneak: silent, and slow' },
-  { label: 'F1', value: 'see what the guards believe' },
+  { label: 'W A S D', value: 'move, arrow keys work too' },
+  { label: 'Shift', value: 'sprint: fast, loud, tiring' },
+  { label: 'Ctrl', value: 'sneak: silent and slow' },
+  { label: 'F1', value: 'what the guards believe' },
   { label: 'R', value: 'restart the level' },
   { label: 'Esc', value: 'back to this page' },
 ]);
@@ -58,29 +58,27 @@ function jobRows(grid) {
 
   return [
     { label: 'Data chips', value: `${chips}, and both of them` },
-    { label: 'The door', value: 'shut until the last chip is lifted' },
-    { label: 'Getting out', value: 'walk into it. that is the whole job' },
+    { label: 'The door', value: 'shut until both are lifted' },
+    { label: 'Getting out', value: 'walk into it, that is the job' },
   ];
 }
 
 function guardRows(grid, config) {
   // Through the same rule the level spawns from, so the roster cannot list a
-  // guard the level never posts.
+  // guard the level never posts, or miss one that it does.
   const posts = grid ? guardPosts(grid, { count: config.enemy.count }) : [];
   const waypoints = grid?.waypoints ?? [];
   const order = waypoints.map((wp) => wp.order).join(' - ');
 
   return [
-    { label: 'On shift', value: `${posts.length}` },
+    { label: 'On shift', value: `${posts.length} guard${posts.length === 1 ? '' : 's'}` },
+    // One row per guard rather than one line listing them all: the roster reads
+    // as a roster, and it stays inside the panel whatever the guard count is.
+    ...posts.map((post) => ({ label: post.name, value: `starts at post ${post.order}` })),
     {
-      label: 'Patrol loop',
-      value: order ? `${waypoints.length} posts, in order ${order}` : 'none',
+      label: 'The loop',
+      value: order ? `${waypoints.length} posts: ${order}` : 'none, it stands and scans',
     },
-    {
-      label: 'Postings',
-      value: posts.map((post) => `${post.name} at post ${post.order}`).join(', '),
-    },
-    { label: 'Each one', value: 'walks the loop, pausing to scan at every post' },
   ];
 }
 
@@ -96,21 +94,21 @@ function senseRows(config) {
   const noise = config.player.noise;
 
   return [
-    { label: 'Sight', value: `${enemy.sightRange}px, ${enemy.fov}° cone, and a clear line` },
+    { label: 'Sight', value: `${enemy.sightRange}px, ${enemy.fov}° cone, clear line` },
     { label: 'Hearing', value: `${noise.walk}px walking, ${noise.sprint}px sprinting` },
     {
       label: 'Through walls',
-      value: `${Math.round(enemy.hearingMuffled * 100)}% of the volume gets through`,
+      value: `${Math.round(enemy.hearingMuffled * 100)}% gets through a wall`,
     },
     {
       label: 'Certainty',
-      value: `fills at ${enemy.suspicionGain}/s, drains at ${enemy.suspicionDecay}/s`,
+      value: `fills ${enemy.suspicionGain}/s, drains ${enemy.suspicionDecay}/s`,
     },
-    {
-      label: 'Commits at',
-      value: `${enemy.chaseAt}/100, and only with eyes on you`,
-    },
-    { label: 'Searching', value: `${enemy.searchDuration}s at the last place it had you` },
+    { label: 'Chases at', value: `${enemy.chaseAt}/100` },
+    // The one rule above that is not a number, and the one that decides most
+    // runs: noise can bring a guard over, and it can never bring one running.
+    { label: 'Noise alone', value: 'never enough to chase' },
+    { label: 'Searching', value: `${enemy.searchDuration}s at the last place` },
   ];
 }
 
