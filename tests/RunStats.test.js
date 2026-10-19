@@ -243,6 +243,84 @@ describe('RunStats', () => {
   });
 });
 
+describe('RunStats - per-level bests', () => {
+  it('starts with every rung unclimbed', () => {
+    const stats = new RunStats({ storage: null });
+
+    expect(stats.bestTimeFor(0)).toBeNull();
+    expect(stats.bestTimeFor(9)).toBeNull();
+    expect(stats.levelsCleared).toBe(0);
+  });
+
+  it('keeps a best per level, separately from the global one', () => {
+    const stats = new RunStats({ storage: null });
+
+    stats.recordWin(50, 4, 0);
+    stats.recordWin(30, 4, 2);
+
+    expect(stats.bestTimeFor(0)).toBe(50);
+    expect(stats.bestTimeFor(2)).toBe(30);
+    expect(stats.bestTimeFor(1)).toBeNull();
+    // The global best is the fastest anywhere - and the two books stay in
+    // their own ledgers.
+    expect(stats.bestTime).toBe(30);
+    expect(stats.levelsCleared).toBe(2);
+  });
+
+  it('only lets a faster escape take a level, like the global book', () => {
+    const stats = new RunStats({ storage: null });
+
+    stats.recordWin(60, 2, 3);
+    stats.recordWin(90, 2, 3);
+    stats.recordWin(45, 2, 3);
+
+    expect(stats.bestTimeFor(3)).toBe(45);
+  });
+
+  it('never counts a capture as a level cleared, however quick', () => {
+    const stats = new RunStats({ storage: null });
+
+    stats.recordCatch(4, 0, 1);
+
+    expect(stats.bestTimeFor(1)).toBeNull();
+    expect(stats.levelsCleared).toBe(0);
+  });
+
+  it('round-trips the per-level book through storage', () => {
+    const storage = fakeStorage();
+    new RunStats({ storage }).recordWin(41.5, 3, 6).recordWin(12.5, 1, 0);
+
+    const again = new RunStats({ storage });
+
+    expect(again.bestTimeFor(6)).toBeCloseTo(41.5, 6);
+    expect(again.bestTimeFor(0)).toBeCloseTo(12.5, 6);
+    expect(again.levelsCleared).toBe(2);
+  });
+
+  it('treats stored per-level book as hostile, like everything else on disk', () => {
+    const storage = fakeStorage({
+      [KEY]: JSON.stringify({
+        version: STATS_VERSION,
+        attempts: 1,
+        wins: 1,
+        bestByLevel: {
+          0: 12.5, // fine
+          3: 'a lie', // not a number
+          7: -5, // not a duration
+          cat: 9, // not a level index
+          123456: 3, // hmm - a number, and a valid index: kept, whoever hears of level 123456 next clamps it back into the shipped ladder
+        },
+      }),
+    });
+
+    const stats = new RunStats({ storage });
+
+    expect(stats.bestTimeFor(0)).toBeCloseTo(12.5, 6);
+    expect(stats.bestTimeFor(3)).toBeNull();
+    expect(stats.levelsCleared).toBe(2);
+  });
+});
+
 describe('browserStorage', () => {
   it('hands back the real thing when there is one', () => {
     const fake = { localStorage: { getItem: () => null } };

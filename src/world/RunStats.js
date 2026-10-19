@@ -1,7 +1,7 @@
 import { CONFIG } from '../config.js';
 
 /** The stored shape. The key carries the version too, so a bump starts over. */
-export const STATS_VERSION = 1;
+export const STATS_VERSION = 2;
 
 /** How a run ended. Only two ways out of the level, and both are quiet. */
 export const OUTCOME = Object.freeze({
@@ -34,6 +34,11 @@ function count(value) {
 /** A stored duration, or null. Never zero: no run takes no time. */
 function timeOrNull(value) {
   return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** A level index, or false for anything that cannot name a rung of the ladder. */
+function isValidIndex(value) {
+  return Number.isInteger(value) && value >= 0;
 }
 
 /**
@@ -70,6 +75,11 @@ export class RunStats {
     this.lastOutcome = null;
     this.lastTime = null;
     this.lastChips = 0;
+    // Best time per level index, so the dashboard can say which rungs of the
+    // ladder have actually been climbed. Stored keyed by index as a string in
+    // JSON, and read back through the same hostile-parse lens as everything
+    // else here.
+    this.bestByLevel = {};
     return this;
   }
 
@@ -95,8 +105,12 @@ export class RunStats {
    *
    * @param {number} seconds how long the run took
    * @param {number} chips how many were lifted on the way
+   * @param {number} [levelIndex] which rung of the ladder this run sat on, when
+   *   the caller can say so. Levels keep their own best times, which is how the
+   *   start page learns that a specific level has been cleared - and how it
+   *   learns it without telling the global best anything new.
    */
-  recordWin(seconds, chips = 0) {
+  recordWin(seconds, chips = 0, levelIndex = null) {
     const time = timeOrNull(seconds);
 
     this.wins += 1;
@@ -109,8 +123,31 @@ export class RunStats {
       this.bestTime = time;
     }
 
+    if (time !== null && isValidIndex(levelIndex)) {
+      const current = this.bestByLevel[levelIndex];
+      if (current === null || current === undefined || time < current) {
+        this.bestByLevel[levelIndex] = time;
+      }
+    }
+
     this.save();
     return this;
+  }
+
+  /**
+   * A level's own best escape time, or null while it has never been beaten.
+   *
+   * @param {number} levelIndex
+   * @returns {number|null}
+   */
+  bestTimeFor(levelIndex) {
+    if (!isValidIndex(levelIndex)) return null;
+    return this.bestByLevel[levelIndex] ?? null;
+  }
+
+  /** How many rungs of the ladder this record has actually reached the top of. */
+  get levelsCleared() {
+    return Object.keys(this.bestByLevel).length;
   }
 
   /** The guards got the player. Never a personal best, whatever the clock said. */
@@ -141,6 +178,7 @@ export class RunStats {
       lastOutcome: this.lastOutcome,
       lastTime: this.lastTime,
       lastChips: this.lastChips,
+      bestByLevel: this.bestByLevel,
     };
   }
 
@@ -171,6 +209,19 @@ export class RunStats {
         : null;
     this.lastTime = timeOrNull(data.lastTime);
     this.lastChips = count(data.lastChips);
+
+    // Per-level bests come back through the same lens as everything else: only
+    // objects, only durations, only sane level indices survive the trip.
+    this.bestByLevel = {};
+    if (data.bestByLevel && typeof data.bestByLevel === 'object') {
+      for (const [key, value] of Object.entries(data.bestByLevel)) {
+        const time = timeOrNull(value);
+        const index = Number(key);
+        if (time !== null && isValidIndex(index) && String(index) === key) {
+          this.bestByLevel[index] = time;
+        }
+      }
+    }
 
     return this;
   }

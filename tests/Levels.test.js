@@ -4,13 +4,22 @@ import { Pathfinder } from '../src/ai/Pathfinder.js';
 import { CONFIG } from '../src/config.js';
 import { Grid } from '../src/world/Grid.js';
 import { LEVEL_ROWS } from '../src/world/LevelData.js';
-import { LEVELS, LEVEL_COUNT, DEFAULT_LEVEL, levelAt, configFor } from '../src/world/Levels.js';
+import {
+  LEVELS,
+  LEVEL_COUNT,
+  DEFAULT_LEVEL,
+  levelAt,
+  configFor,
+  gadgetsFor,
+  relayFor,
+  featuresFor,
+} from '../src/world/Levels.js';
 import { Mission } from '../src/world/Mission.js';
 import { guardPosts } from '../src/world/Roster.js';
 
 describe('the ladder', () => {
-  it('ships five levels, with the one the project was built on as the default', () => {
-    expect(LEVEL_COUNT).toBe(5);
+  it('ships ten levels, with the one the project was built on as the default', () => {
+    expect(LEVEL_COUNT).toBe(10);
     expect(DEFAULT_LEVEL).toBe(0);
     expect(levelAt().id).toBe('night-shift');
     expect(new Set(LEVELS.map((level) => level.id)).size).toBe(LEVEL_COUNT);
@@ -51,16 +60,93 @@ describe('the ladder', () => {
   });
 
   it('gives a level its own guard count without touching the shared config', () => {
-    const level = levelAt(LEVEL_COUNT - 1);
-    const config = configFor(level);
+    const config = configFor(levelAt(4)); // The Vault: a count, and nothing more.
 
-    expect(config.enemy.count).toBe(level.guards);
-    // Only the count moves: everything else is still the game's own tuning.
+    expect(config.enemy.count).toBe(5);
+    // A plain level tunes nothing else: everything is still the game's own.
     expect(config.enemy.sightRange).toBe(CONFIG.enemy.sightRange);
     expect(config.enemy.searchDuration).toBe(CONFIG.enemy.searchDuration);
     expect(CONFIG.enemy.count).toBe(2);
     expect(config).not.toBe(CONFIG);
     expect(config.enemy).not.toBe(CONFIG.enemy);
+  });
+
+  it('merges a retuned level over the shared config, and the shared config never notices', () => {
+    const blackOut = levelAt(LEVEL_COUNT - 1);
+    const config = configFor(blackOut);
+
+    expect(config.enemy.count).toBe(blackOut.guards);
+    // The level's own sheet lands on top, and only on top: inherits what it
+    // does not mention.
+    for (const [key, value] of Object.entries(blackOut.tuning)) {
+      expect(config.enemy[key]).toBe(value);
+    }
+    expect(config.enemy.searchSpeed).toBe(CONFIG.enemy.searchSpeed);
+    expect(config.enemy.loseRange).toBe(CONFIG.enemy.loseRange);
+
+    // And the singleton came out of it exactly as it went in, so the next
+    // level, the next run and the next test cannot inherit a tune-up.
+    expect(CONFIG.enemy.sightRange).toBe(180);
+    expect(CONFIG.enemy.count).toBe(2);
+    {
+      const before = { ...CONFIG.enemy };
+      configFor(blackOut);
+      expect(CONFIG.enemy).toEqual(before);
+    }
+
+    // The untuned levels before it run on the shared sheet untouched.
+    expect(configFor(levelAt(0)).enemy.sightRange).toBe(CONFIG.enemy.sightRange);
+  });
+
+  it('hammers tighter thresholds than it hands certainty out at', () => {
+    // Every level object with its own tuning keeps the shape sane: thresholds
+    // ordering is a config invariant, and per-level tuning must not break it.
+    for (const level of LEVELS) {
+      const enemy = configFor(level).enemy;
+      expect(enemy.suspiciousAt).toBeGreaterThan(0);
+      expect(enemy.chaseAt).toBeGreaterThan(enemy.suspiciousAt);
+      expect(enemy.loseRange).toBeGreaterThan(enemy.sightRange);
+      // The player is still able to outrun every chasing guard shipped.
+      expect(CONFIG.player.speed).toBeGreaterThan(enemy.chaseSpeed);
+    }
+  });
+
+  it('knows what it issues and what it never does', () => {
+    // No gadgets, no grants: the early ladder is gadget-free, exactly as it
+    // shipped before the radio existed.
+    expect(gadgetsFor(levelAt(0)).decoys).toBe(0);
+    expect(gadgetsFor(levelAt(4)).decoys).toBe(0);
+    expect(gadgetsFor(levelAt(5)).decoys).toBe(2);
+    expect(gadgetsFor(levelAt(LEVEL_COUNT - 1)).decoys).toBe(1);
+    // And a level with no record of gadgets at all reads as zero, not as
+    // undefined leaking into a HUD.
+    expect(gadgetsFor({}).decoys).toBe(0);
+
+    // The relay is wired only where the levels say so, and undefined means off.
+    expect(relayFor(levelAt(8))).toBe(true);
+    expect(relayFor(levelAt(9))).toBe(true);
+    expect(relayFor(levelAt(0))).toBe(false);
+    expect(relayFor({})).toBe(false);
+  });
+
+  it('tags itself with the features it actually has, and nothing it does not', () => {
+    const tags = (index) => featuresFor(levelAt(index));
+
+    // Levels one to five are geometry alone - no tags at all, because saying
+    // "the map is the difficulty" in a tag would be a start page telling you
+    // something the config cannot back up.
+    for (let index = 0; index < 5; index += 1) {
+      expect(tags(index)).toEqual([]);
+    }
+
+    expect(tags(5)).toContain('decoy radio');
+    expect(tags(6)).toContain('edgy');
+    expect(tags(7)).toContain('sharp eyes');
+    expect(tags(8)).toContain('alarm relay');
+    const last = tags(LEVEL_COUNT - 1);
+    expect(last).toContain('decoy radio');
+    expect(last).toContain('alarm relay');
+    expect(last).toContain('sharp eyes');
   });
 });
 

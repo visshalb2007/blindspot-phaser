@@ -82,6 +82,20 @@ export class Alertness {
     this.value = CEILING;
   }
 
+  /**
+   * Lifts the meter to at least `value` - never down, never above the ceiling.
+   * The alarm relay uses it to move every guard on the floor past the
+   * suspicion threshold without pretending any of them saw anything: what a
+   * radio call buys is a reason to come and look, never a chase.
+   *
+   * @param {number} value the level the meter should not sit below
+   * @returns {number} the meter after the raise
+   */
+  raiseTo(value) {
+    this.value = clamp(Math.max(this.value, value), 0, CEILING);
+    return this.value;
+  }
+
   reset() {
     this.value = 0;
   }

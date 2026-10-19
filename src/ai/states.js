@@ -61,8 +61,14 @@ export function iconFor(state) {
  * transition table next to the behaviour it describes instead of in one large
  * switch. `brain` is the StateMachine's owner, so the same handlers drive the
  * on-screen guard and the headless simulation.
+ *
+ * The thresholds are read off the tuning sheet handed in - the same sheet the
+ * brain runs on - rather than out of the global config, so a level can turn
+ * attack ranges or chase commitment up without a second copy of the rules.
+ *
+ * @param {object} tuning the enemy config this guard's brain runs on
  */
-export function createGuardStates() {
+export function createGuardStates(tuning = CONFIG.enemy) {
   return {
     [STATE.PATROL]: {
       enter(brain) {
@@ -75,9 +81,12 @@ export function createGuardStates() {
         // Seeing is not the same as knowing what to do about them: the meter
         // has to fill first, and because it drains slower than it fills, a
         // guard that keeps catching glimpses escalates instead of flickering
-        // between calm and furious. A noise fills it just as well, which is how
-        // a guard ends up investigating something it never saw.
-        if (!brain.canSeeTarget() && !brain.heardSomething) return;
+        // between calm and furious. A noise fills it just as well, which is
+        // how a guard ends up investigating something it never saw - and so
+        // does intel handed over the alarm relay, which arrives as a hunch
+        // with some warmth behind it rather than as a sound this guard heard.
+        const stirred = brain.heardSomething || (brain.hasHunch && brain.alertness.value > 0);
+        if (!brain.canSeeTarget() && !stirred) return;
 
         // ...but only a sighting is enough to commit to a chase.
         if (brain.canSeeTarget() && brain.alertness.isAlarmed) {
@@ -122,7 +131,7 @@ export function createGuardStates() {
         // Close enough to swing. Forcing the change skips the minimum state
         // time: a guard that has just run you down should not stand waiting for
         // its 0.4s to expire while you walk away.
-        if (brain.canSeeTarget() && brain.sight.distance <= CONFIG.enemy.attackEnter) {
+        if (brain.canSeeTarget() && brain.sight.distance <= tuning.attackEnter) {
           fsm.change(STATE.ATTACK, { force: true });
           return;
         }
@@ -130,7 +139,7 @@ export function createGuardStates() {
         // Losing sight no longer ends the hunt immediately. A second without a
         // sighting commits the guard to searching the spot, and only a fruitless
         // search sends it home - which is what stops the old CHASE/RETURN pulse.
-        if (brain.lostSightFor(CONFIG.enemy.losLostTime)) {
+        if (brain.lostSightFor(tuning.losLostTime)) {
           fsm.change(STATE.SEARCH);
         }
       },
@@ -171,7 +180,7 @@ export function createGuardStates() {
         // a single missing frame made the guard drop out of the attack and
         // swing again on a 0.4s cycle whenever the player hovered on the edge
         // of cover.
-        if (brain.lostSightFor(CONFIG.enemy.losLostTime)) {
+        if (brain.lostSightFor(tuning.losLostTime)) {
           fsm.change(STATE.SEARCH);
           return;
         }
@@ -179,7 +188,7 @@ export function createGuardStates() {
         // The exit radius is deliberately wider than the entry radius, so a
         // player hovering on the boundary cannot make the guard swing and stop
         // on alternate frames.
-        if (brain.canSeeTarget() && brain.sight.distance > CONFIG.enemy.attackExit) {
+        if (brain.canSeeTarget() && brain.sight.distance > tuning.attackExit) {
           fsm.change(STATE.CHASE);
         }
       },
@@ -205,8 +214,13 @@ export function createGuardStates() {
 
         // A noise close enough to make it doubt stops the trip home and turns
         // it into a look. Walking on past a sprint two tiles away would read as
-        // the guard being deaf.
-        if (brain.heardSomething && brain.alertness.isSuspicious) {
+        // the guard being deaf. Relay intel works the same way: a hunch still
+        // pending with any warmth left is a radio call the guard honours
+        // before it finishes walking home.
+        if (
+          (brain.heardSomething || (brain.hasHunch && brain.alertness.value > 0)) &&
+          brain.alertness.isSuspicious
+        ) {
           fsm.change(STATE.SUSPICIOUS);
           return;
         }

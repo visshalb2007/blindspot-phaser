@@ -91,20 +91,25 @@ export class Enemy {
   _drawDebug() {
     const g = this.debug;
     const b = this.brain;
+
+    // Drawn from the tuning sheet this guard actually runs on, so a retuned
+    // level's wedge is the wedge its behaviour follows - and the overlay
+    // cannot show a guard bigger than the level made it.
+    const { sightRange, fov, arriveRadius } = b.tuning;
     const color = colorFor(b.state);
-    const half = degToRad(CONFIG.enemy.fov) / 2;
+    const half = degToRad(fov) / 2;
 
     g.clear();
 
     g.fillStyle(color, 0.1);
-    g.slice(b.x, b.y, CONFIG.enemy.sightRange, b.heading - half, b.heading + half, false);
+    g.slice(b.x, b.y, sightRange, b.heading - half, b.heading + half, false);
     g.fillPath();
 
     g.lineStyle(1, color, 0.45);
-    g.strokeCircle(b.x, b.y, CONFIG.enemy.sightRange);
+    g.strokeCircle(b.x, b.y, sightRange);
 
     g.lineStyle(1, color, 0.9);
-    g.strokeCircle(b.x, b.y, CONFIG.enemy.arriveRadius);
+    g.strokeCircle(b.x, b.y, arriveRadius);
 
     this._drawSightRay(g, b);
     this._drawPath(g, b);

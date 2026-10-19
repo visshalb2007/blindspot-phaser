@@ -2,12 +2,14 @@ import Phaser from 'phaser';
 
 import { CONFIG } from '../config.js';
 import { Grid } from '../world/Grid.js';
-import { DEFAULT_LEVEL, levelAt } from '../world/Levels.js';
+import { DEFAULT_LEVEL, levelAt, configFor, gadgetsFor, relayFor } from '../world/Levels.js';
+import { Decoy, loudestNoise } from '../world/Decoy.js';
 import { Mission } from '../world/Mission.js';
 import { guardPosts } from '../world/Roster.js';
 import { RunStats, browserStorage } from '../world/RunStats.js';
 import { Clock } from '../utils/Clock.js';
 import { clampDelta } from '../utils/Timer.js';
+import { STATE } from '../ai/states.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
 
@@ -56,6 +58,17 @@ export default class GameScene extends Phaser.Scene {
     this.caught = false;
     this.statusText = null;
 
+    // The level's own contract: how many guards it posts, how they are turned
+    // up, what the player is issued, and whether the guards' radios carry a
+    // chase to the rest of the floor. Everything downstream reads these once,
+    // so a level cannot be half-applied.
+    this.levelConfig = configFor(this.level);
+    this.gadgets = gadgetsFor(this.level);
+    this.relayOn = relayFor(this.level);
+    this.activeDecoys = [];
+    this.decoySprites = new Map();
+    this.decoysLeft = this.gadgets.decoys;
+
     this.mission = new Mission({ chips: this.grid.chips, exit: this.grid.exit });
     this.clock = new Clock({ running: !this.shadow });
     this.stats = new RunStats({ storage: browserStorage() });
@@ -84,6 +97,12 @@ export default class GameScene extends Phaser.Scene {
       this.input.keyboard.on('keydown-F1', () => this.toggleDebug());
       this.input.keyboard.on('keydown-R', () => this.restartLevel());
       this.input.keyboard.on('keydown-ESC', () => this._exitToDashboard());
+
+      // The decoy radio only listens where the level actually issued one, so
+      // Q is a dead key on every run that shipped without the gadget.
+      if (this.gadgets.decoys > 0) {
+        this.input.keyboard.on('keydown-Q', () => this._dropDecoy());
+      }
     }
 
     this.cameras.main.setBounds(0, 0, CONFIG.map.widthPx, CONFIG.map.heightPx);
@@ -109,16 +128,45 @@ export default class GameScene extends Phaser.Scene {
     // reached it, and a run that ends here does not also take a swing.
     if (this._updateMission()) return;
 
+    this._tickDecoys(dt);
+
     // Every guard senses the same player position for the frame, so two guards
-    // can never disagree about where the player was. The noise is the same
-    // story: one circle around the player, whose radius is however much racket
-    // they are making - which is zero while standing still or sneaking, and so
-    // never heard at all.
+    // can never disagree about where the player was. What they hear is one
+    // sound per frame too - whoever is making the loudest noise. Blaring decoys
+    // are built louder than anything the player can make on foot, so a decoy
+    // drowns its owner out, and guards investigate the box instead.
     const target = this.player.position;
-    const noise = { x: target.x, y: target.y, radius: this.player.noiseRadius };
+    const playerNoise =
+      this.player.noiseRadius > 0
+        ? { x: target.x, y: target.y, radius: this.player.noiseRadius }
+        : null;
+    const noise = loudestNoise(playerNoise, this.activeDecoys);
+
+    // A relay turned on means one shared shout per committed chase: the first
+    // guard to enter CHASE this frame passes its last-known position to every
+    // other guard as intel, and the closing shout happens after all of this
+    // frame's updates are in, so the receivers act on it from their next
+    // update - and the scene stays out of the way of how any guard thinks
+    // about it afterwards.
+    const shouted = [];
 
     for (const enemy of this.enemies) {
+      const wasChasing = enemy.relayState === STATE.CHASE;
       enemy.update(dt, target, noise);
+
+      const isChasing = enemy.brain.state === STATE.CHASE;
+      enemy.relayState = isChasing ? STATE.CHASE : null;
+
+      if (!wasChasing && isChasing) shouted.push(enemy.brain);
+    }
+
+    if (this.relayOn && shouted.length > 0) {
+      for (const shout of shouted) {
+        const intel = shout.lastKnownPos ?? { ...shout.position };
+        for (const enemy of this.enemies) {
+          if (enemy.brain !== shout) enemy.brain.relayIntel(intel);
+        }
+      }
     }
 
     this._updateHud();
@@ -221,20 +269,102 @@ export default class GameScene extends Phaser.Scene {
    * by construction rather than by coincidence.
    */
   _spawnGuards() {
-    this.enemies = guardPosts(this.grid, { count: this.level.guards }).map(
-      (post) =>
-        new Enemy(this, {
-          name: post.name,
-          x: post.x,
-          y: post.y,
-          heading: post.heading,
-          waypoints: this.grid.waypoints,
-          startIndex: post.startIndex,
-          grid: this.grid,
-          // The brain does not know what a hit means; the scene does.
-          onHit: () => this._onPlayerHit(),
-        }),
-    );
+    this.enemies = guardPosts(this.grid, { count: this.level.guards }).map((post) => {
+      const enemy = new Enemy(this, {
+        name: post.name,
+        x: post.x,
+        y: post.y,
+        heading: post.heading,
+        waypoints: this.grid.waypoints,
+        startIndex: post.startIndex,
+        grid: this.grid,
+        // The level's own tuning sheet: the same one `configFor` hands the
+        // start page, so a guard runs on exactly the figures the panels
+        // quoted. Perception, hearing and the state table all take it.
+        tuning: this.levelConfig.enemy,
+        // The brain does not know what a hit means; the scene does.
+        onHit: () => this._onPlayerHit(),
+      });
+
+      // The relay's bookkeeping lives on the wrapper rather than in the brain,
+      // which should stay ignorant of anything another guard can shout.
+      enemy.relayState = null;
+      return enemy;
+    });
+  }
+
+  // ------------------------------------------------------------------ gadget
+
+  /**
+   * Spends a decoy.
+   *
+   * The box lands where the player is standing and blares from there; it does
+   * not follow, and it cannot be picked up again. One-time use is what makes
+   * each drop a real decision, and the HUD carries the count that is left.
+   */
+  _dropDecoy() {
+    if (this.gadgets.decoys <= 0 || this.decoysLeft <= 0) return;
+    if (this.caught || this.mission.won) return;
+
+    this.decoysLeft -= 1;
+
+    const at = this.player.position;
+    const decoy = new Decoy({
+      x: at.x,
+      y: at.y,
+      radius: CONFIG.decoy.radius,
+      duration: CONFIG.decoy.duration,
+    });
+    this.activeDecoys.push(decoy);
+
+    const sprite = this.add.image(at.x, at.y, 'chip').setDepth(3).setTint(0x66ccff);
+    this.decoySprites.set(decoy, sprite);
+    this.tweens.add({
+      targets: sprite,
+      scale: 1.25,
+      alpha: 0.65,
+      duration: 300,
+      yoyo: true,
+      repeat: -1,
+    });
+
+    this._updateHud();
+  }
+
+  /** Runs every blaring decoy's battery down, and lays spent ones to rest. */
+  _tickDecoys(dt) {
+    for (const decoy of [...this.activeDecoys]) {
+      decoy.update(dt);
+
+      if (decoy.active) continue;
+
+      this.activeDecoys.splice(this.activeDecoys.indexOf(decoy), 1);
+
+      const sprite = this.decoySprites.get(decoy);
+      this.decoySprites.delete(decoy);
+
+      if (sprite) {
+        this.tweens.killTweensOf(sprite);
+        this.tweens.add({
+          targets: sprite,
+          alpha: 0,
+          duration: 400,
+          onComplete: () => sprite.destroy(),
+        });
+      }
+    }
+  }
+
+  /** Puts every decoy back in the box - a restart gets the full issue again. */
+  _clearDecoys() {
+    this.activeDecoys = [];
+    this.decoysLeft = this.gadgets.decoys;
+
+    for (const sprite of this.decoySprites.values()) {
+      this.tweens.killTweensOf(sprite);
+      sprite.destroy();
+    }
+    this.decoySprites.clear();
   }
 
   /**
@@ -293,9 +423,10 @@ export default class GameScene extends Phaser.Scene {
     this.player.sprite.setVelocity(0, 0);
 
     // The clock stops with the run, and the time is what gets remembered: a
-    // best time is only ever a time somebody actually finished in.
+    // best time is only ever a time somebody actually finished in. The level
+    // index goes along, so the start page learns this rung has been climbed.
     this.clock.stop();
-    this.stats.recordWin(this.clock.seconds, this.mission.collected);
+    this.stats.recordWin(this.clock.seconds, this.mission.collected, this.levelIndex);
 
     this._updateHud();
     this._showStatus(
@@ -366,10 +497,15 @@ export default class GameScene extends Phaser.Scene {
 
     for (const enemy of this.enemies) {
       enemy.reset();
+      // A restarted run has no chase already in flight for the relay to carry:
+      // every guard begins the new run with a clean radio.
+      enemy.relayState = null;
     }
 
-    // The chips come back, which means the sprites do too.
+    // The chips come back, which means the sprites do too. And the decoy box
+    // refills: a restart is a fresh run, gadgets included.
     this.mission.reset();
+    this._clearDecoys();
     this._clearMarkers();
     this._drawMarkers();
     this._paintExit();
@@ -426,9 +562,14 @@ export default class GameScene extends Phaser.Scene {
 
     const door = this.mission.isUnlocked ? 'OPEN' : 'SHUT';
     const chips = `${this.mission.collected}/${this.mission.total}`;
-    const lines = [
-      `TIME ${this.clock.formatted}    HEALTH ${pips}    CHIPS ${chips}    EXIT ${door}`,
-    ];
+    let first = `TIME ${this.clock.formatted}    HEALTH ${pips}    CHIPS ${chips}    EXIT ${door}`;
+
+    // The gadget line lives on the main line, next to the count it competes
+    // with for the player's attention; the relay line is quieter, because the
+    // relay is only ever news after it has already shouted.
+    if (this.gadgets.decoys > 0) first += `    DECOYS ${this.decoysLeft} (Q)`;
+
+    const lines = [first, ...(this.relayOn ? ['RADIO: a chase is shared with every guard'] : [])];
 
     for (const enemy of this.enemies) {
       const brain = enemy.brain;
@@ -489,14 +630,24 @@ export default class GameScene extends Phaser.Scene {
       g.lineBetween(wp.x, wp.y - 7, wp.x, wp.y + 7);
     }
 
-    // What the guards can hear: one circle around the player, as wide as the
-    // racket they are making this frame. Not drawn at all while the player is
-    // still or sneaking, which is the whole answer.
-    if (this.player.noiseRadius > 0) {
-      const { x, y } = this.player.position;
+    // What the guards can hear: one circle around whoever is making the
+    // loudest sound, as wide as that racket actually carries - not drawn at
+    // all while the player is still or sneaking. With a decoy blaring, that is
+    // the decoy's circle and the player's own noise is the smaller voice.
+    const heard = loudestNoise(
+      this.player.noiseRadius > 0
+        ? {
+            x: this.player.position.x,
+            y: this.player.position.y,
+            radius: this.player.noiseRadius,
+          }
+        : null,
+      this.activeDecoys,
+    );
 
-      g.lineStyle(1, 0xffd166, 0.55);
-      g.strokeCircle(x, y, this.player.noiseRadius);
+    if (heard) {
+      g.lineStyle(1, this.activeDecoys.length > 0 ? 0x66ccff : 0xffd166, 0.55);
+      g.strokeCircle(heard.x, heard.y, heard.radius);
     }
   }
 }

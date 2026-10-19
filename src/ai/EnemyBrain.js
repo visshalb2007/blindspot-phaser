@@ -32,11 +32,18 @@ export class EnemyBrain {
     waypoints = [],
     startIndex = 0,
     grid = null,
+    tuning = null,
     lineOfSight = null,
     onHit = null,
   } = {}) {
     this.name = name;
-    this.radius = CONFIG.enemy.radius;
+
+    // The sheet this guard runs on: the shared turning, with any level's own
+    // figures merged over it. A brain built without one still runs on the
+    // game's config, which is what every earlier suite step their guards with.
+    this.tuning = tuning ? { ...CONFIG.enemy, ...tuning } : CONFIG.enemy;
+
+    this.radius = this.tuning.radius;
     this.grid = grid;
 
     this.spawn = { x, y, heading, startIndex };
@@ -55,7 +62,7 @@ export class EnemyBrain {
     this.returnIndex = this.waypointIndex;
     this.returnTarget = null;
     this.waiting = false;
-    this.waitTimer = new Timer(CONFIG.enemy.waitAtWaypoint);
+    this.waitTimer = new Timer(this.tuning.waitAtWaypoint);
 
     this.lookAroundAngle = 0;
     this.lookAroundDirection = 1;
@@ -69,13 +76,22 @@ export class EnemyBrain {
 
     this.perception = new Perception({
       canSee: this.lineOfSight ? (self, target) => this._traceSight(self, target) : null,
+      range: this.tuning.sightRange,
+      loseRange: this.tuning.loseRange,
+      fov: this.tuning.fov,
     });
 
     // Hearing is the other half of noticing. It borrows sight's wall test, but
     // the answer means far less: a noise is a place, not a person, and it can
     // never make a guard certain enough to chase.
     this.hearing = new Hearing(
-      this.lineOfSight ? { blocked: (from, to) => !this.lineOfSight.canSee(from, to) } : {},
+      this.lineOfSight
+        ? {
+            blocked: (from, to) => !this.lineOfSight.canSee(from, to),
+            gain: this.tuning.hearingGain,
+            muffled: this.tuning.hearingMuffled,
+          }
+        : { gain: this.tuning.hearingGain, muffled: this.tuning.hearingMuffled },
     );
     this.heard = NOTHING_HEARD;
 
@@ -83,21 +99,26 @@ export class EnemyBrain {
     // sighting, and the timers behind the suspicious, search and attack states.
     // `timeSinceSeen` starts at Infinity because "never seen" must not read as
     // "seen a moment ago" to the rule that ends a chase.
-    this.alertness = new Alertness();
+    this.alertness = new Alertness({
+      gain: this.tuning.suspicionGain,
+      decay: this.tuning.suspicionDecay,
+      suspiciousAt: this.tuning.suspiciousAt,
+      chaseAt: this.tuning.chaseAt,
+    });
     this.timeSinceSeen = Infinity;
 
     // A noise worth acting on, which is not the same as a sighting: `hunch` is
     // a place to go and look that nothing has taken the guard to yet.
     this.hunchPending = false;
 
-    this.suspicionPause = new Timer(CONFIG.enemy.alertPause);
-    this.searchTimer = new Timer(CONFIG.enemy.searchDuration);
+    this.suspicionPause = new Timer(this.tuning.alertPause);
+    this.searchTimer = new Timer(this.tuning.searchDuration);
     this.searchTarget = null;
     this.searchArrived = false;
 
     this.swinging = false;
-    this.attackTimer = new Timer(CONFIG.enemy.attackWindup);
-    this.attackCooldown = new Timer(CONFIG.enemy.attackCooldown);
+    this.attackTimer = new Timer(this.tuning.attackWindup);
+    this.attackCooldown = new Timer(this.tuning.attackCooldown);
     this.hitsLanded = 0;
     this.onHit = onHit;
 
@@ -105,17 +126,17 @@ export class EnemyBrain {
     // it wants to reach. That keeps the brain usable in unit tests.
     this.pathfinder = grid ? new Pathfinder(grid) : null;
     this.follower = new PathFollower();
-    this.repathTimer = new Timer(CONFIG.enemy.repathInterval);
+    this.repathTimer = new Timer(this.tuning.repathInterval);
     this.pathTarget = null;
     this.lastPath = null;
     this.lastPathResult = null;
     this._lastReachFailed = false;
 
     this.fsm = new StateMachine({
-      states: createGuardStates(),
+      states: createGuardStates(this.tuning),
       initial: STATE.PATROL,
       owner: this,
-      minStateTime: CONFIG.enemy.minStateTime,
+      minStateTime: this.tuning.minStateTime,
     });
   }
 
@@ -188,6 +209,41 @@ export class EnemyBrain {
     }
 
     return this.heard;
+  }
+
+  /**
+   * A chase called in over the alarm relay.
+   *
+   * Relayed levels only: the first guard to commit hands its last-known position
+   * to every other guard, and they treat it like the hunch a noise leaves
+   * behind - a place worth walking to, arrived at through suspicion rather
+   * than through certainty. So the relay brings the whole building round, and
+   * it still never starts a chase on its own: nobody chases a point on a map,
+   * they all go and look at it.
+   *
+   * Deliberately no synthetic hearing frame: the receiver's own senses would
+   * overwrite it before its state machine read it, and a radio call is intel,
+   * not a sound. What it leaves is the hunch, a certainty meter lifted past the
+   * suspicion threshold, and the state machine's own escalation - PATROL and
+   * RETURN both turn a standing suspicion with a pending hunch into a search.
+   *
+   * @param {{x: number, y: number}} intel where the shouting came from
+   * @returns {boolean} always true - the intel was taken, whoever received it
+   */
+  relayIntel(intel) {
+    if (!intel) return false;
+
+    this.lastKnownPos = { x: intel.x, y: intel.y };
+    this.hunchPending = true;
+
+    // The relay carries a full second's worth of certainty on top of the
+    // suspicion threshold: a shout is at least as informative as a second of
+    // plain sight, and the buffer stops one frame of quiet decay from erasing
+    // a radio call before the receiver's state machine gets to read it. It is
+    // still nowhere near the chase threshold - nobody chases a point on a map.
+    this.alertness.raiseTo(this.alertness.suspiciousAt + this.alertness.decay);
+
+    return true;
   }
 
   senseTarget(target) {
@@ -391,7 +447,7 @@ export class EnemyBrain {
       return;
     }
 
-    const arrived = this.navigateTo(this.currentWaypoint, CONFIG.enemy.patrolSpeed, dt);
+    const arrived = this.navigateTo(this.currentWaypoint, this.tuning.patrolSpeed, dt);
 
     if (arrived) {
       this.velocity = { x: 0, y: 0 };
@@ -423,9 +479,9 @@ export class EnemyBrain {
 
   /** Sweeps the head back and forth across `baseHeading`. */
   _lookAround(dt) {
-    const sweep = degToRad(CONFIG.enemy.lookAroundSweep);
+    const sweep = degToRad(this.tuning.lookAroundSweep);
 
-    this.lookAroundAngle += this.lookAroundDirection * degToRad(CONFIG.enemy.lookAroundRate) * dt;
+    this.lookAroundAngle += this.lookAroundDirection * degToRad(this.tuning.lookAroundRate) * dt;
 
     if (this.lookAroundAngle > sweep) {
       this.lookAroundAngle = sweep;
@@ -459,7 +515,7 @@ export class EnemyBrain {
     // while not. Chasing a stale position is what stops a guard ploughing
     // into the wall the player just ran behind.
     const target = this.canSeeTarget() ? this.target : (this.lastKnownPos ?? this.target);
-    this.approach(target, CONFIG.enemy.chaseSpeed, dt);
+    this.approach(target, this.tuning.chaseSpeed, dt);
   }
 
   // ----------------------------------------------------------------- return
@@ -478,7 +534,7 @@ export class EnemyBrain {
       return;
     }
 
-    this.navigateTo(this.returnTarget, CONFIG.enemy.patrolSpeed, dt);
+    this.navigateTo(this.returnTarget, this.tuning.patrolSpeed, dt);
   }
 
   hasReachedPatrolPost() {
@@ -486,7 +542,7 @@ export class EnemyBrain {
 
     return (
       Math.hypot(this.returnTarget.x - this.x, this.returnTarget.y - this.y) <=
-      CONFIG.enemy.arriveRadius
+      this.tuning.arriveRadius
     );
   }
 
@@ -527,7 +583,7 @@ export class EnemyBrain {
     // chasing guard on purpose: suspicion is a puzzle to walk away from, not a
     // threat to outrun.
     const where = this.canSeeTarget() ? this.target : (this.lastKnownPos ?? this.position);
-    this.approach(where, CONFIG.enemy.patrolSpeed, dt);
+    this.approach(where, this.tuning.patrolSpeed, dt);
   }
 
   // --------------------------------------------------------------- search
@@ -551,7 +607,7 @@ export class EnemyBrain {
   searchStep(dt) {
     this.searchTimer.tick(dt);
 
-    if (!this.approach(this.searchTarget, CONFIG.enemy.searchSpeed, dt)) return;
+    if (!this.approach(this.searchTarget, this.tuning.searchSpeed, dt)) return;
 
     this.velocity = { x: 0, y: 0 };
 
@@ -629,7 +685,7 @@ export class EnemyBrain {
    */
   navigateTo(target, speed, dt) {
     if (!this.pathfinder) {
-      return this.steerTo(target, speed) <= CONFIG.enemy.arriveRadius;
+      return this.steerTo(target, speed) <= this.tuning.arriveRadius;
     }
 
     this._maybeRepath(target, dt);
@@ -735,7 +791,7 @@ export class EnemyBrain {
       inRange: false,
       inCone: false,
       clearLine: true,
-      limit: CONFIG.enemy.sightRange,
+      limit: this.tuning.sightRange,
     };
   }
 }

@@ -20,6 +20,20 @@ import { LEVEL_ROWS } from './LevelData.js';
  * `guards` is how many are posted; `Guard` posts are spread evenly around the
  * level's own waypoint loop by `world/Roster.js`, so a level can never ask for
  * more guards than it has posts.
+ *
+ * Levels six and up carry more than geometry. Three optional fields turn the
+ * same AI up:
+ *
+ *   `tuning`  - fields merged over `CONFIG.enemy` by `configFor()` below, so
+ *               every module and every start-page panel quotes the same numbers.
+ *               Deliberately a merge, not a replacement: a level tunes the two
+ *               things it needs and inherits the rest.
+ *   `gadgets` - what the player is issued. `decoys` is how many noise lures the
+ *               run hands out; zero means the key does nothing.
+ *   `relay`   - guards share a chase over their radios: the first guard to
+ *               commit passes its last-known position to every other guard as a
+ *               place worth looking. Noise still never chases anyone - it just
+ *               brings the whole building round.
  */
 export const LEVELS = Object.freeze([
   {
@@ -138,6 +152,149 @@ export const LEVELS = Object.freeze([
       '#########################',
     ],
   },
+  {
+    id: 'executive-wing',
+    name: 'Executive Wing',
+    difficulty: 6,
+    guards: 5,
+    blurb: 'carpet offices, a decoy radio',
+    gadgets: { decoys: 2 },
+    rows: [
+      '#########################',
+      '#P.....#.........#.....C#',
+      '#......#....0....#......#',
+      '#......#.........#...####',
+      '#.#####......#####......#',
+      '#.#..C#.................#',
+      '#.#...#....##....#......#',
+      '#.#...#....##....#...C..#',
+      '#.#...#.........1.......#',
+      '#.#...#.........#.......#',
+      '#.#...###########.......#',
+      '#.#..2........##....C...#',
+      '#.#...........##........#',
+      '#.####...3....#####..####',
+      '#.........C.............#',
+      '#.......................#',
+      '#4....5............E....#',
+      '#########################',
+    ],
+  },
+  {
+    id: 'security-wing',
+    name: 'Security Wing',
+    difficulty: 7,
+    guards: 6,
+    blurb: 'jumpy guards, deep searches',
+    tuning: { suspicionGain: 90, suspicionDecay: 20, searchDuration: 5.5 },
+    rows: [
+      '#########################',
+      '#P......0...............#',
+      '#.......................#',
+      '#....##.....##.....##...#',
+      '#....##..C..##..C..##...#',
+      '#.......................#',
+      '#1......................#',
+      '#.......................#',
+      '#....##.....##.....##...#',
+      '#....##..C..##..C..##...#',
+      '#...........2...........#',
+      '#.................3.....#',
+      '#..C....................#',
+      '#.....................4.#',
+      '#....##.....##.....##...#',
+      '#5......................#',
+      '#....................E..#',
+      '#########################',
+    ],
+  },
+  {
+    id: 'the-atrium',
+    name: 'The Atrium',
+    difficulty: 8,
+    guards: 6,
+    blurb: 'wide cones, long sightlines',
+    tuning: { sightRange: 220, fov: 110 },
+    rows: [
+      '#########################',
+      '#P.........0...........E#',
+      '#.......................#',
+      '#...###..........###....#',
+      '#...###....C.....###....#',
+      '#.......................#',
+      '#.C...1..............C..#',
+      '#.......................#',
+      '#...###...........###...#',
+      '#...###...........###...#',
+      '#........2..............#',
+      '#.......................#',
+      '#......................3#',
+      '#..C......C.............#',
+      '#.......................#',
+      '#4......................#',
+      '#....................E.5#',
+      '#########################',
+    ],
+  },
+  {
+    id: 'the-exchange',
+    name: 'The Exchange',
+    difficulty: 9,
+    guards: 7,
+    blurb: 'they radio every sighting',
+    relay: true,
+    tuning: { chaseSpeed: 165, patrolSpeed: 95, losLostTime: 1.4 },
+    rows: [
+      '#########################',
+      '#P......#.......#......C#',
+      '#.......#...0...#.......#',
+      '#..1....#.......#...2...#',
+      '#.......#.......#.......#',
+      '#.#######.......###.#####',
+      '#.......#..C....#.......#',
+      '#.......#.......#.......#',
+      '#..##...#....C..#..##...#',
+      '#..##...#.......#..##...#',
+      '#.......#########.......#',
+      '#...3.............4.....#',
+      '#.......................#',
+      '#.###.##########........#',
+      '#..#......5...#####.C...#',
+      '#..#..C.......6.........#',
+      '#..#..........7.....E...#',
+      '#########################',
+    ],
+  },
+  {
+    id: 'blackout',
+    name: 'Blackout',
+    difficulty: 10,
+    guards: 8,
+    blurb: 'everything at once, 8 guards',
+    relay: true,
+    gadgets: { decoys: 1 },
+    tuning: { sightRange: 225, fov: 105, chaseSpeed: 168, searchDuration: 6, suspicionGain: 75 },
+    rows: [
+      '#########################',
+      '#P........0............E#',
+      '#.......................#',
+      '#...##....##....##......#',
+      '#...##..C.##..C.##......#',
+      '#.1...........6.........#',
+      '#.......................#',
+      '#.......................#',
+      '#......##....##.....##..#',
+      '#......##..C.##.....##..#',
+      '#...........2...........#',
+      '#..........C............#',
+      '#...##....##....##......#',
+      '#...##.C..##..C.##....3.#',
+      '#.......................#',
+      '#4....................5.#',
+      '#.....................7.#',
+      '#########################',
+    ],
+  },
 ]);
 
 export const LEVEL_COUNT = LEVELS.length;
@@ -158,16 +315,51 @@ export function levelAt(index = DEFAULT_LEVEL) {
 }
 
 /**
- * The config a level runs on: the game's own, with this level's guard count.
+ * The config a level runs on: the game's own, with this level's guard count
+ * and - where the level lists one - its guard tuning merged over the shared
+ * numbers.
  *
- * The one rule for how many guards a level posts, so the scene that spawns them
- * and the start page that lists them agree by construction. Deliberately a copy
- * rather than a mutation: `CONFIG` is a module singleton, and a level must not
- * be able to leave its guard count behind for the next one.
+ * The one rule for how many guards a level posts and how hard they are tuned,
+ * so the scene that spawns them and the start page that lists them agree by
+ * construction. Deliberately a copy rather than a mutation: `CONFIG` is a
+ * module singleton, and a level must not be able to leave its guard count or
+ * its tuning behind for the next one.
  *
  * @param {(typeof LEVELS)[number]} level
  * @param {object} [config]
  */
 export function configFor(level, config = CONFIG) {
-  return { ...config, enemy: { ...config.enemy, count: level.guards } };
+  return {
+    ...config,
+    enemy: { ...config.enemy, count: level.guards, ...level.tuning },
+  };
+}
+
+/** What the player is issued on a level, or zeros when it issues nothing. */
+export function gadgetsFor(level) {
+  return { decoys: 0, ...level.gadgets };
+}
+
+/** Whether a level's guards are wired into the alarm relay. */
+export function relayFor(level) {
+  return Boolean(level.relay);
+}
+
+/**
+ * One-word tags a start page can print about a level, derived rather than
+ * remembered: a retuned level tags itself what it actually tunes.
+ */
+export function featuresFor(level) {
+  const tags = [];
+
+  if (gadgetsFor(level).decoys > 0) tags.push('decoy radio');
+  if (relayFor(level)) tags.push('alarm relay');
+
+  const tuning = level.tuning ?? {};
+  if (tuning.sightRange || tuning.fov) tags.push('sharp eyes');
+  if (tuning.suspicionGain) tags.push('edgy');
+  if (tuning.chaseSpeed) tags.push('sprinters');
+  if (tuning.searchDuration) tags.push('deep searches');
+
+  return tags;
 }

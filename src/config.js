@@ -30,6 +30,16 @@ export const CONFIG = {
     exitRadius: 20,
   },
 
+  /**
+   * The decoy radio. Radius is the circle of sound it blares into - set wider
+   * than a sprint (140) deliberately, so a blaring decoy really does drown the
+   * player out - and duration is how long it keeps that up before it is spent.
+   */
+  decoy: {
+    radius: 170,
+    duration: 3.5,
+  },
+
   player: {
     speed: 170,
     sprint: 230,
@@ -98,7 +108,7 @@ export const CONFIG = {
    * version deliberately starts everyone's record over.
    */
   stats: {
-    key: 'night-shift-heist.stats.v1',
+    key: 'night-shift-heist.stats.v2',
   },
 
   /**

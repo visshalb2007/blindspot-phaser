@@ -1,6 +1,6 @@
 import { CONFIG } from '../config.js';
 import { formatDuration } from '../utils/Clock.js';
-import { LEVELS, levelAt } from './Levels.js';
+import { LEVELS, levelAt, gadgetsFor, relayFor, featuresFor } from './Levels.js';
 import { OUTCOME } from './RunStats.js';
 import { guardPosts } from './Roster.js';
 
@@ -32,11 +32,13 @@ export const CONTROLS = Object.freeze([
  * never is.
  *
  * @param {{grid?: object, stats?: object, config?: object, level?: object}} [sources]
- *   `level` is an entry from `world/Levels.js`; it names the map and warns about
- *   it. `config` should be `configFor(level)` when a level has its own guard
- *   count, which is how the roster stays honest about who is on shift.
+ *   `level` is an entry from `world/Levels.js`; it names the map, warns about
+ *   it, and carries any gadget grant or radio wiring it has. `config` should be
+ *   `configFor(level)` when a level tunes its own guards, which is how the
+ *   roster and the quoted figures stay honest about who is on shift.
  * @returns {{title: string, subtitle: string, hint: string, note: string,
- *   sections: Array<{heading: string, rows: Array<{label: string, value: string}>}>}}
+ *   features: Array<string>, sections: Array<{heading: string,
+ *   rows: Array<{label: string, value: string}>}>}}
  */
 export function buildBriefing({
   grid = null,
@@ -50,13 +52,16 @@ export function buildBriefing({
   return {
     title: config.title.toUpperCase(),
     subtitle: `${level.name} - level ${level.difficulty} of ${LEVELS.length} - ${cols} x ${rows} tiles`,
-    hint: 'SPACE or click to start',
+    hint: `SPACE or click to start - level ${level.difficulty}`,
     note: 'the level behind this page is live',
+    // What turns this run up beyond geometry, derived from the level itself so
+    // a start page card cannot claim a gadget or a relay it does not have.
+    features: featuresFor(level),
     sections: [
       { heading: 'THE JOB', rows: jobRows(grid, level) },
       { heading: 'CONTROLS', rows: CONTROLS.map((row) => ({ ...row })) },
       { heading: 'THE GUARDS', rows: guardRows(grid, config) },
-      { heading: 'HOW THEY THINK', rows: senseRows(config) },
+      { heading: 'HOW THEY THINK', rows: senseRows(config, level) },
       { heading: 'YOUR RECORD', rows: recordRows(stats) },
     ],
   };
@@ -64,12 +69,18 @@ export function buildBriefing({
 
 function jobRows(grid, level) {
   const chips = grid?.chips?.length ?? 0;
+  const decoys = gadgetsFor(level).decoys;
 
   return [
     { label: 'Data chips', value: `${chips}` },
     { label: 'The door', value: 'shut until every chip is in' },
     { label: 'Watch out', value: level.blurb },
     { label: 'Getting out', value: 'walk into it, that is the job' },
+    // The gadget row only exists when the level actually issues anything, so a
+    // panel never advertises a key that would do nothing on the floor.
+    ...(decoys > 0
+      ? [{ label: 'Q', value: `drop a noise decoy (${decoys} issued, one-time)` }]
+      : []),
   ];
 }
 
@@ -99,7 +110,7 @@ function guardRows(grid, config) {
  * the one in `CONFIG.enemy`, so retuning a guard retunes what the start page
  * claims about it.
  */
-function senseRows(config) {
+function senseRows(config, level = null) {
   const enemy = config.enemy;
   const noise = config.player.noise;
 
@@ -119,6 +130,10 @@ function senseRows(config) {
     // runs: noise can bring a guard over, and it can never bring one running.
     { label: 'Noise alone', value: 'never enough to chase' },
     { label: 'Searching', value: `${enemy.searchDuration}s at the last place` },
+    // The radio row only appears where the level actually wired one up.
+    ...(level && relayFor(level)
+      ? [{ label: 'Alarm relay', value: 'a chase is shouted to every guard' }]
+      : []),
   ];
 }
 
@@ -136,6 +151,10 @@ function recordRows(stats) {
       value: stats.bestTime === null ? 'not yet' : formatDuration(stats.bestTime),
     },
     { label: 'Chips lifted', value: String(stats.chips) },
+    {
+      label: 'Levels cleared',
+      value: `${stats.levelsCleared} of ${LEVELS.length}`,
+    },
     { label: 'Last run', value: lastRunText(stats) },
   ];
 }

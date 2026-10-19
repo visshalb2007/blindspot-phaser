@@ -42,7 +42,7 @@ describe('buildBriefing', () => {
   it('names the level on the board and where it sits on the ladder', () => {
     const briefing = buildBriefing({ grid });
 
-    expect(briefing.subtitle).toContain('level 1 of 5');
+    expect(briefing.subtitle).toContain('level 1 of 10');
   });
 
   it('describes whichever level it is handed, not the first one', () => {
@@ -58,10 +58,34 @@ describe('buildBriefing', () => {
     const guards = panel(briefing, 'THE GUARDS');
 
     expect(briefing.subtitle).toContain(last.name);
-    expect(briefing.subtitle).toContain(`level ${last.difficulty} of 5`);
+    expect(briefing.subtitle).toContain(`level ${last.difficulty} of ${LEVELS.length}`);
     expect(job['Data chips']).toBe(String(lastGrid.chips.length));
     expect(job['Watch out']).toBe(last.blurb);
     expect(guards['On shift']).toBe(`${last.guards} guards`);
+  });
+
+  it('says a level has been cleared and quotes per-level features alongside', () => {
+    const decoyLevel = LEVELS[5];
+
+    const briefing = buildBriefing({
+      grid: new Grid(decoyLevel.rows),
+      level: decoyLevel,
+    });
+
+    // The gadget row exists exactly on the levels that issue the gadget, and
+    // nowhere else - a panel advertising a dead key is a panel that lies.
+    expect(panel(briefing, 'THE JOB').Q).toContain('decoy');
+
+    const first = buildBriefing({ grid, level: LEVELS[0] });
+    expect(panel(first, 'THE JOB').Q).toBeUndefined();
+  });
+
+  it('tells the truth about the alarm relay where one is wired', () => {
+    const relayed = buildBriefing({ level: LEVELS[8] });
+    const plain = buildBriefing({ grid, level: LEVELS[0] });
+
+    expect(panel(relayed, 'HOW THEY THINK')['Alarm relay']).toContain('every guard');
+    expect(panel(plain, 'HOW THEY THINK')['Alarm relay']).toBeUndefined();
   });
 
   it('lays out the panels a start page needs, in order', () => {
@@ -162,6 +186,15 @@ describe('buildBriefing', () => {
 
     expect(record['Best time']).toBe('not yet');
     expect(record['Last run']).toBe('caught in 0:30.0, 1 chip');
+  });
+
+  it('counts the rungs of the ladder that have actually been cleared', () => {
+    const stats = new RunStats({ storage: null });
+    stats.startRun().recordWin(50, 4, 0).recordWin(30, 4, 2).recordCatch(9, 1, 0);
+
+    const record = panel(buildBriefing({ grid, stats }), 'YOUR RECORD');
+
+    expect(record['Levels cleared']).toBe(`2 of ${LEVELS.length}`);
   });
 
   it('survives being handed nothing at all', () => {
