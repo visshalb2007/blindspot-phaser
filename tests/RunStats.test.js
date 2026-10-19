@@ -319,6 +319,26 @@ describe('RunStats - per-level bests', () => {
     expect(stats.bestTimeFor(3)).toBeNull();
     expect(stats.levelsCleared).toBe(2);
   });
+
+  it('tracks ghost and clean escapes and remembers them per level', () => {
+    const storage = fakeStorage();
+    const stats = new RunStats({ storage });
+
+    stats.startRun().recordWin(45.2, 3, 0, { ghost: true, clean: true });
+    stats.startRun().recordWin(60.1, 4, 1, { ghost: false, clean: true });
+
+    expect(stats.ghosts).toBe(1);
+    expect(stats.cleans).toBe(2);
+    expect(stats.isGhostFor(0)).toBe(true);
+    expect(stats.isGhostFor(1)).toBe(false);
+
+    // Survives reload from disk
+    const reloaded = new RunStats({ storage });
+    expect(reloaded.ghosts).toBe(1);
+    expect(reloaded.cleans).toBe(2);
+    expect(reloaded.isGhostFor(0)).toBe(true);
+    expect(reloaded.isGhostFor(1)).toBe(false);
+  });
 });
 
 describe('browserStorage', () => {

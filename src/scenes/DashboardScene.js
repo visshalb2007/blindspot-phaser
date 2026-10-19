@@ -221,10 +221,12 @@ export default class DashboardScene extends Phaser.Scene {
         color: selected ? CONFIG.ui.hint : '#5c6a90',
       });
 
-      this.add.text(x + 8, LADDER_Y + 23, best === null ? '—' : formatDuration(best), {
+      const isGhost = this.stats.isGhostFor(index);
+      const timeStr = best === null ? '—' : `${formatDuration(best)}${isGhost ? ' ★' : ''}`;
+      this.add.text(x + 8, LADDER_Y + 23, timeStr, {
         fontFamily: CONFIG.ui.font,
         fontSize: '10px',
-        color: best === null ? '#3d4a6b' : '#9fe8a9',
+        color: best === null ? '#3d4a6b' : isGhost ? '#ffd166' : '#9fe8a9',
       });
 
       // A shorter name, cropped rather than wrapped: the tile is a number plate,

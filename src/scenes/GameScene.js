@@ -60,6 +60,8 @@ export default class GameScene extends Phaser.Scene {
     this.isPaused = false;
     this.pauseOverlay = null;
     this.statusText = null;
+    this.chaseTriggered = false;
+    this.damageTaken = 0;
 
     // The level's own contract: how many guards it posts, how they are turned
     // up, what the player is issued, and whether the guards' radios carry a
@@ -327,7 +329,10 @@ export default class GameScene extends Phaser.Scene {
         onStateChange: (to) => {
           if (this.shadow) return;
           if (to === STATE.SUSPICIOUS) SOUND.playSuspicious();
-          else if (to === STATE.CHASE) SOUND.playChase();
+          else if (to === STATE.CHASE) {
+            this.chaseTriggered = true;
+            SOUND.playChase();
+          }
         },
       });
 
@@ -421,6 +426,7 @@ export default class GameScene extends Phaser.Scene {
    */
   _onPlayerHit() {
     if (!this.player.takeHit()) return;
+    this.damageTaken += 1;
     SOUND.playHit();
     this.cameras.main.shake(160, 0.01);
     this.cameras.main.flash(100, 200, 50, 50);
@@ -477,14 +483,25 @@ export default class GameScene extends Phaser.Scene {
   _winMission() {
     this.player.sprite.setVelocity(0, 0);
 
+    const isGhost = !this.chaseTriggered;
+    const isClean = this.damageTaken === 0;
+
     // The clock stops with the run, and the time is what gets remembered: a
     // best time is only ever a time somebody actually finished in. The level
     // index goes along, so the start page learns this rung has been climbed.
     this.clock.stop();
-    this.stats.recordWin(this.clock.seconds, this.mission.collected, this.levelIndex);
+    this.stats.recordWin(this.clock.seconds, this.mission.collected, this.levelIndex, {
+      ghost: isGhost,
+      clean: isClean,
+    });
     SOUND.playWin();
 
     this._updateHud();
+
+    const badges = [];
+    if (isGhost) badges.push('★ GHOST (UNDETECTED)');
+    if (isClean) badges.push('✔ CLEAN (NO DAMAGE)');
+    const badgeLine = badges.length > 0 ? `${badges.join('  |  ')}\n\n` : '';
 
     const hasNext = this.levelIndex < LEVEL_COUNT - 1;
     const nextName = hasNext ? levelAt(this.levelIndex + 1).name : '';
@@ -493,7 +510,7 @@ export default class GameScene extends Phaser.Scene {
       : 'ALL LEVELS CLEARED!\nPress SPACE or R to replay, ESC for dashboard';
 
     this._showStatus(
-      `MISSION COMPLETE in ${this.clock.formatted}\n\n${nextHint}`,
+      `MISSION COMPLETE in ${this.clock.formatted}\n\n${badgeLine}${nextHint}`,
       '#88ff99',
     );
   }
@@ -604,6 +621,8 @@ export default class GameScene extends Phaser.Scene {
     // start page read as a history rather than as a best.
     this.clock.reset().start();
     this.stats.startRun();
+    this.chaseTriggered = false;
+    this.damageTaken = 0;
 
     this.player.reset();
 

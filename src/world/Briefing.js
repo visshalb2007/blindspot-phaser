@@ -146,6 +146,8 @@ function recordRows(stats) {
     { label: 'Runs', value: String(stats.attempts) },
     { label: 'Escapes', value: `${stats.wins} (${Math.round(stats.winRate * 100)}%)` },
     { label: 'Caught', value: String(stats.catches) },
+    ...(stats.ghosts > 0 ? [{ label: 'Ghost escapes', value: `${stats.ghosts} (undetected)` }] : []),
+    ...(stats.cleans > 0 ? [{ label: 'Clean escapes', value: `${stats.cleans} (no hits)` }] : []),
     {
       label: 'Best time',
       value: stats.bestTime === null ? 'not yet' : formatDuration(stats.bestTime),

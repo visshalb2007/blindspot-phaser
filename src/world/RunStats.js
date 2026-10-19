@@ -75,6 +75,9 @@ export class RunStats {
     this.lastOutcome = null;
     this.lastTime = null;
     this.lastChips = 0;
+    this.ghosts = 0;
+    this.cleans = 0;
+    this.ghostByLevel = {};
     // Best time per level index, so the dashboard can say which rungs of the
     // ladder have actually been climbed. Stored keyed by index as a string in
     // JSON, and read back through the same hostile-parse lens as everything
@@ -105,16 +108,23 @@ export class RunStats {
    *
    * @param {number} seconds how long the run took
    * @param {number} chips how many were lifted on the way
-   * @param {number} [levelIndex] which rung of the ladder this run sat on, when
-   *   the caller can say so. Levels keep their own best times, which is how the
-   *   start page learns that a specific level has been cleared - and how it
-   *   learns it without telling the global best anything new.
+   * @param {number} [levelIndex] which rung of the ladder this run sat on
+   * @param {{ghost?: boolean, clean?: boolean}} [medals] stealth and health medals
    */
-  recordWin(seconds, chips = 0, levelIndex = null) {
+  recordWin(seconds, chips = 0, levelIndex = null, { ghost = false, clean = false } = {}) {
     const time = timeOrNull(seconds);
 
     this.wins += 1;
     this.chips += count(chips);
+    if (ghost) {
+      this.ghosts += 1;
+      if (isValidIndex(levelIndex)) {
+        this.ghostByLevel[levelIndex] = true;
+      }
+    }
+    if (clean) {
+      this.cleans += 1;
+    }
     this._remember(OUTCOME.ESCAPED, time, chips);
 
     // Only ever on a win, and only ever faster: a quick capture is not a
@@ -143,6 +153,17 @@ export class RunStats {
   bestTimeFor(levelIndex) {
     if (!isValidIndex(levelIndex)) return null;
     return this.bestByLevel[levelIndex] ?? null;
+  }
+
+  /**
+   * Whether a level was cleared with Ghost rating (without triggering a single chase).
+   *
+   * @param {number} levelIndex
+   * @returns {boolean}
+   */
+  isGhostFor(levelIndex) {
+    if (!isValidIndex(levelIndex)) return false;
+    return Boolean(this.ghostByLevel[levelIndex]);
   }
 
   /** How many rungs of the ladder this record has actually reached the top of. */
@@ -179,6 +200,9 @@ export class RunStats {
       lastTime: this.lastTime,
       lastChips: this.lastChips,
       bestByLevel: this.bestByLevel,
+      ghosts: this.ghosts,
+      cleans: this.cleans,
+      ghostByLevel: this.ghostByLevel,
     };
   }
 
@@ -209,6 +233,8 @@ export class RunStats {
         : null;
     this.lastTime = timeOrNull(data.lastTime);
     this.lastChips = count(data.lastChips);
+    this.ghosts = count(data.ghosts);
+    this.cleans = count(data.cleans);
 
     // Per-level bests come back through the same lens as everything else: only
     // objects, only durations, only sane level indices survive the trip.
@@ -219,6 +245,16 @@ export class RunStats {
         const index = Number(key);
         if (time !== null && isValidIndex(index) && String(index) === key) {
           this.bestByLevel[index] = time;
+        }
+      }
+    }
+
+    this.ghostByLevel = {};
+    if (data.ghostByLevel && typeof data.ghostByLevel === 'object') {
+      for (const [key, value] of Object.entries(data.ghostByLevel)) {
+        const index = Number(key);
+        if (value === true && isValidIndex(index) && String(index) === key) {
+          this.ghostByLevel[index] = true;
         }
       }
     }
