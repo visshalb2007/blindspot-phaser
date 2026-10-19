@@ -544,6 +544,7 @@ export default class GameScene extends Phaser.Scene {
             align: 'center',
             backgroundColor: '#000000dd',
             padding: { x: 24, y: 18 },
+            resolution: 2,
           },
         )
         .setOrigin(0.5)
@@ -573,6 +574,7 @@ export default class GameScene extends Phaser.Scene {
         align: 'center',
         backgroundColor: '#000000cc',
         padding: { x: 16, y: 12 },
+        resolution: 2,
       })
       .setOrigin(0.5)
       .setDepth(30);
@@ -685,6 +687,7 @@ export default class GameScene extends Phaser.Scene {
         fontFamily: CONFIG.ui.font,
         fontSize: '12px',
         color: '#c8d4ff',
+        resolution: 2,
       })
       .setDepth(24);
   }
@@ -729,6 +732,7 @@ export default class GameScene extends Phaser.Scene {
           fontFamily: CONFIG.ui.font,
           fontSize: '11px',
           color: '#66ccff',
+          resolution: 2,
         })
         .setDepth(22)
         .setVisible(false),

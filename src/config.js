@@ -118,7 +118,7 @@ export const CONFIG = {
    * are drawn by different scenes and have to agree: they are the same UI.
    */
   ui: {
-    font: 'ui-monospace, monospace',
+    font: 'Consolas, "Segoe UI Mono", Menlo, Monaco, "Courier New", monospace',
     panel: 0x0b1220,
     panelAlpha: 0.82,
     panelLine: 0x2b3a63,

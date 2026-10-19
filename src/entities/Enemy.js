@@ -23,19 +23,21 @@ export class Enemy {
 
     this.label = scene.add
       .text(x, y - 24, '', {
-        fontFamily: 'ui-monospace, monospace',
+        fontFamily: CONFIG.ui.font,
         fontSize: '10px',
         color: '#ffffff',
+        resolution: 2,
       })
       .setOrigin(0.5)
       .setDepth(21);
 
     this.icon = scene.add
       .text(x, y - 40, '', {
-        fontFamily: 'ui-monospace, monospace',
+        fontFamily: CONFIG.ui.font,
         fontSize: '16px',
         fontStyle: 'bold',
         color: '#ffffff',
+        resolution: 2,
       })
       .setOrigin(0.5)
       .setDepth(21);

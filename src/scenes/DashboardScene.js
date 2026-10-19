@@ -157,6 +157,14 @@ export default class DashboardScene extends Phaser.Scene {
     this.scene.restart({ levelIndex: wrapped });
   }
 
+  _text(x, y, text, style = {}) {
+    return this.add.text(x, y, text, {
+      fontFamily: CONFIG.ui.font,
+      resolution: 2,
+      ...style,
+    });
+  }
+
   /** Drops the level back to a backdrop, so the panels read over it. */
   _drawDim() {
     this.add
@@ -167,33 +175,24 @@ export default class DashboardScene extends Phaser.Scene {
   _drawHeader() {
     const { title, subtitle, note } = this.briefing;
 
-    this.add.text(20, 12, title, {
-      fontFamily: CONFIG.ui.font,
+    this._text(22, 12, title, {
       fontSize: '26px',
       color: '#eef2ff',
     });
 
-    this.add.text(20, 46, subtitle, {
-      fontFamily: CONFIG.ui.font,
-      fontSize: '13px',
+    this._text(22, 44, subtitle, {
+      fontSize: '12px',
       color: CONFIG.ui.label,
     });
 
-    this.add
-      .text(CONFIG.map.widthPx - 20, 50, note, {
-        fontFamily: CONFIG.ui.font,
-        fontSize: '12px',
-        color: '#5c6a90',
-      })
-      .setOrigin(1, 0);
+    this._text(CONFIG.map.widthPx - 22, 44, note, {
+      fontSize: '11px',
+      color: '#5c6a90',
+    }).setOrigin(1, 0);
 
-    // What turns this level up beyond its map: the gadget that is issued, the
-    // relay that is wired, the way the guards are tuned. One quiet line under
-    // the subtitle, taken from the brief rather than remembered here.
     const tags = this.briefing.features;
     if (tags.length > 0) {
-      this.add.text(20, 108, tags.join('  |  '), {
-        fontFamily: CONFIG.ui.font,
+      this._text(22, 108, tags.join('  |  '), {
         fontSize: '11px',
         color: '#ffcf6b',
       });
@@ -201,12 +200,7 @@ export default class DashboardScene extends Phaser.Scene {
   }
 
   /**
-   * The ten levels as a ladder you can read at a glance: one box per rung,
-   * numbered, clickable, and - where you have cleared it - carrying your own
-   * best escape at that level. A rung that has never been beaten shows a dash
-   * where the time would go, so an empty one reads as unclimbed rather than
-   * broken. One frame per tile, interactable, so the selected tile is
-   * highlighted and the click has somewhere obvious to land.
+   * The ten levels as a ladder: centered horizontally with 22px margins on both sides.
    */
   _drawLadder() {
     LEVELS.forEach((level, index) => {
@@ -226,76 +220,62 @@ export default class DashboardScene extends Phaser.Scene {
       frame.on('pointerup', () => this.selectLevel(index));
 
       // Row 1: Index with selection arrow on the left, star badge on the right
-      this.add.text(x + 6, LADDER_Y + 4, `${selected ? '>' : ''}${index + 1}`, {
-        fontFamily: CONFIG.ui.font,
+      this._text(x + 6, LADDER_Y + 4, `${selected ? '>' : ''}${index + 1}`, {
         fontSize: '12px',
         fontStyle: selected ? 'bold' : 'normal',
         color: selected ? CONFIG.ui.hint : '#8b98bd',
       });
 
       if (isGhost) {
-        this.add
-          .text(x + TILE_WIDTH - 6, LADDER_Y + 4, '★', {
-            fontFamily: CONFIG.ui.font,
-            fontSize: '11px',
-            color: '#ffd166',
-          })
-          .setOrigin(1, 0);
+        this._text(x + TILE_WIDTH - 6, LADDER_Y + 4, '★', {
+          fontSize: '11px',
+          color: '#ffd166',
+        }).setOrigin(1, 0);
       }
 
       // Row 2: Short level name, single line, cleanly spaced
-      this.add.text(x + 6, LADDER_Y + 17, tileShortName(level.name), {
-        fontFamily: CONFIG.ui.font,
+      this._text(x + 6, LADDER_Y + 17, tileShortName(level.name), {
         fontSize: '8px',
         color: selected ? '#ffffff' : '#8b98bd',
       });
 
       // Row 3: Best escape time or dash
-      this.add.text(x + 6, LADDER_Y + 28, best === null ? '—' : formatDuration(best), {
-        fontFamily: CONFIG.ui.font,
+      this._text(x + 6, LADDER_Y + 28, best === null ? '—' : formatDuration(best), {
         fontSize: '9px',
         color: best === null ? '#3d4a6b' : isGhost ? '#ffd166' : '#9fe8a9',
       });
     });
 
-    this.add
-      .text(
-        CONFIG.map.widthPx - 20,
-        LADDER_Y + TILE_HEIGHT + 6,
-        'number keys or left/right - click a rung to pick it',
-        {
-          fontFamily: CONFIG.ui.font,
-          fontSize: '11px',
-          color: '#5c6a90',
-        },
-      )
-      .setOrigin(1, 0);
+    this._text(
+      CONFIG.map.widthPx - 22,
+      LADDER_Y + TILE_HEIGHT + 6,
+      'number keys or left/right - click a rung to pick it',
+      {
+        fontSize: '11px',
+        color: '#5c6a90',
+      },
+    ).setOrigin(1, 0);
   }
 
   /**
-   * Two balanced columns of panels:
-   * Left: The Job, Controls, and Your Record
-   * Right: The Guards and How They Think
-   * Sized and spaced so neither overflows the screen.
+   * Balanced dashboard layout:
+   * Left Column: The Job & Controls
+   * Right Column: The Guards & How They Think
+   * Lower Deck: Your Record (spanning full width, centered)
    */
   _drawPanels() {
     const sections = this.briefing.sections;
     const byHeading = Object.fromEntries(sections.map((s) => [s.heading, s]));
 
-    const leftSections = [
-      byHeading['THE JOB'],
-      byHeading['CONTROLS'],
-      byHeading['YOUR RECORD'],
-    ].filter(Boolean);
-    const rightSections = [
-      byHeading['THE GUARDS'],
-      byHeading['HOW THEY THINK'],
-    ].filter(Boolean);
+    const leftSections = [byHeading['THE JOB'], byHeading['CONTROLS']].filter(Boolean);
+    const rightSections = [byHeading['THE GUARDS'], byHeading['HOW THEY THINK']].filter(Boolean);
 
     const columns = [
-      { x: 20, width: 372, sections: leftSections },
-      { x: 404, width: 376, sections: rightSections },
+      { x: 22, width: 372, sections: leftSections },
+      { x: 406, width: 372, sections: rightSections },
     ];
+
+    let maxBottomY = PANEL_TOP;
 
     for (const column of columns) {
       let y = PANEL_TOP;
@@ -303,6 +283,12 @@ export default class DashboardScene extends Phaser.Scene {
       for (const section of column.sections) {
         y += this._drawPanel(column.x, y, column.width, section) + PANEL_GAP;
       }
+      if (y > maxBottomY) maxBottomY = y;
+    }
+
+    const record = byHeading['YOUR RECORD'];
+    if (record) {
+      this._drawRecordPanel(22, Math.max(386, maxBottomY), 756, record);
     }
   }
 
@@ -310,7 +296,7 @@ export default class DashboardScene extends Phaser.Scene {
    * @returns {number} the panel's height, so the caller can stack the next one
    */
   _drawPanel(x, y, width, section) {
-    const height = 26 + section.rows.length * ROW_HEIGHT;
+    const height = 24 + section.rows.length * ROW_HEIGHT;
 
     this.add
       .rectangle(x, y, width, height, CONFIG.ui.panel, CONFIG.ui.panelAlpha)
@@ -318,25 +304,22 @@ export default class DashboardScene extends Phaser.Scene {
       .setStrokeStyle(1, CONFIG.ui.panelLine, 0.9);
 
     // The heading sits on a filled strip of its own.
-    this.add.rectangle(x, y, width, 20, 0x101a2e, 0.9).setOrigin(0, 0);
+    this.add.rectangle(x, y, width, 19, 0x101a2e, 0.9).setOrigin(0, 0);
 
-    this.add.text(x + 10, y + 4, section.heading, {
-      fontFamily: CONFIG.ui.font,
+    this._text(x + 10, y + 3, section.heading, {
       fontSize: '11px',
       color: CONFIG.ui.heading,
     });
 
     section.rows.forEach((row, index) => {
-      const rowY = y + 24 + index * ROW_HEIGHT;
+      const rowY = y + 23 + index * ROW_HEIGHT;
 
-      this.add.text(x + 10, rowY, row.label, {
-        fontFamily: CONFIG.ui.font,
+      this._text(x + 10, rowY, row.label, {
         fontSize: '11px',
         color: CONFIG.ui.label,
       });
 
-      this.add.text(x + 10 + LABEL_WIDTH, rowY, row.value, {
-        fontFamily: CONFIG.ui.font,
+      this._text(x + 10 + LABEL_WIDTH, rowY, row.value, {
         fontSize: '11px',
         color: CONFIG.ui.value,
       });
@@ -345,14 +328,58 @@ export default class DashboardScene extends Phaser.Scene {
     return height;
   }
 
+  /**
+   * Full-width centered scoreboard panel for persistent record statistics.
+   */
+  _drawRecordPanel(x, y, width, section) {
+    const isNew = section.rows.length === 1 && section.rows[0].label === 'Nothing yet';
+    const mid = Math.ceil(section.rows.length / 2);
+    const rowCount = isNew ? 1 : mid;
+    const height = 24 + rowCount * ROW_HEIGHT + 4;
+
+    this.add
+      .rectangle(x, y, width, height, CONFIG.ui.panel, CONFIG.ui.panelAlpha)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, CONFIG.ui.panelLine, 0.9);
+
+    this.add.rectangle(x, y, width, 19, 0x101a2e, 0.9).setOrigin(0, 0);
+
+    this._text(x + 10, y + 3, section.heading, {
+      fontSize: '11px',
+      color: CONFIG.ui.heading,
+    });
+
+    if (isNew) {
+      this._text(x + 12, y + 23, section.rows[0].value, {
+        fontSize: '11px',
+        color: CONFIG.ui.label,
+      });
+      return height;
+    }
+
+    const col1 = section.rows.slice(0, mid);
+    const col2 = section.rows.slice(mid);
+
+    col1.forEach((row, i) => {
+      const rowY = y + 23 + i * ROW_HEIGHT;
+      this._text(x + 10, rowY, row.label, { fontSize: '11px', color: CONFIG.ui.label });
+      this._text(x + 115, rowY, row.value, { fontSize: '11px', color: CONFIG.ui.value });
+    });
+
+    col2.forEach((row, i) => {
+      const rowY = y + 23 + i * ROW_HEIGHT;
+      this._text(x + 390, rowY, row.label, { fontSize: '11px', color: CONFIG.ui.label });
+      this._text(x + 505, rowY, row.value, { fontSize: '11px', color: CONFIG.ui.value });
+    });
+
+    return height;
+  }
+
   _drawHint() {
-    const hint = this.add
-      .text(CONFIG.map.widthPx / 2, CONFIG.map.heightPx - 20, this.briefing.hint, {
-        fontFamily: CONFIG.ui.font,
-        fontSize: '15px',
-        color: CONFIG.ui.hint,
-      })
-      .setOrigin(0.5);
+    const hint = this._text(CONFIG.map.widthPx / 2, CONFIG.map.heightPx - 22, this.briefing.hint, {
+      fontSize: '15px',
+      color: CONFIG.ui.hint,
+    }).setOrigin(0.5);
 
     // A slow blink, so a page that is otherwise still says it is waiting for
     // you rather than finishing loading.
@@ -364,13 +391,10 @@ export default class DashboardScene extends Phaser.Scene {
       repeat: -1,
     });
 
-    this.soundIndicator = this.add
-      .text(CONFIG.map.widthPx - 20, CONFIG.map.heightPx - 20, '', {
-        fontFamily: CONFIG.ui.font,
-        fontSize: '11px',
-        color: '#5c6a90',
-      })
-      .setOrigin(1, 0.5);
+    this.soundIndicator = this._text(CONFIG.map.widthPx - 22, CONFIG.map.heightPx - 22, '', {
+      fontSize: '11px',
+      color: '#5c6a90',
+    }).setOrigin(1, 0.5);
 
     this._updateSoundIndicator();
   }

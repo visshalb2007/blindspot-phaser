@@ -19,7 +19,8 @@ const config = {
   width: CONFIG.map.widthPx,
   height: CONFIG.map.heightPx,
   backgroundColor: '#05070c',
-  pixelArt: true,
+  pixelArt: false,
+  roundPixels: true,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
