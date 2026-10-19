@@ -27,6 +27,9 @@ export class Player {
     this.sprite.setTint(CONFIG.colors.player);
     this.sprite.setCollideWorldBounds(true);
 
+    this.staminaBar = scene.add.graphics().setDepth(12);
+    this.noiseRing = scene.add.graphics().setDepth(4);
+
     const radius = CONFIG.player.radius;
     this.sprite.body.setCircle(
       radius,
@@ -105,6 +108,45 @@ export class Player {
     }
 
     this.noiseRadius = moving ? this._currentNoiseRadius() : 0;
+    this._drawFeedback(moving);
+  }
+
+  _drawFeedback(moving) {
+    const { x, y } = this.sprite;
+
+    // 1. Stamina bar underneath player
+    this.staminaBar.clear();
+    if (this.stamina.ratio < 0.99) {
+      const barW = 20;
+      const barH = 3;
+      const barX = x - barW / 2;
+      const barY = y + 14;
+
+      this.staminaBar.fillStyle(0x0b1220, 0.85);
+      this.staminaBar.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+      this.staminaBar.lineStyle(1, 0x2b3a63, 0.9);
+      this.staminaBar.strokeRect(barX - 1, barY - 1, barW + 2, barH + 2);
+
+      const color = this.stamina.isExhausted
+        ? 0xff4444
+        : this.stamina.ratio < 0.3
+          ? 0xffaa33
+          : 0x4da3ff;
+      this.staminaBar.fillStyle(color, 1);
+      this.staminaBar.fillRect(barX, barY, Math.max(1, Math.round(barW * this.stamina.ratio)), barH);
+    }
+
+    // 2. Acoustic noise footprint ring on the floor
+    this.noiseRing.clear();
+    if (moving && this.noiseRadius > 0) {
+      const ringColor = this.sprinting ? 0xffbb44 : 0x55aaff;
+      const ringAlpha = this.sprinting ? 0.22 : 0.12;
+
+      this.noiseRing.lineStyle(1, ringColor, ringAlpha);
+      this.noiseRing.strokeCircle(x, y, this.noiseRadius);
+      this.noiseRing.fillStyle(ringColor, ringAlpha * 0.25);
+      this.noiseRing.fillCircle(x, y, this.noiseRadius);
+    }
   }
 
   /**
@@ -165,6 +207,8 @@ export class Player {
     this.noiseRadius = 0;
     this.health.reset();
     this.stamina.reset();
+    this.staminaBar.clear();
+    this.noiseRing.clear();
   }
 }
 

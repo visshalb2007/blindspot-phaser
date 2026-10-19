@@ -37,6 +37,7 @@ export default class BootScene extends Phaser.Scene {
     this._actor(g, 'enemy', CONFIG.enemy.radius);
     this._chip(g);
     this._exit(g);
+    this._decoy(g);
 
     g.destroy();
   }
@@ -111,5 +112,29 @@ export default class BootScene extends Phaser.Scene {
     g.strokeRect(4, 4, T - 8, T - 8);
 
     g.generateTexture('exit', T, T);
+  }
+
+  _decoy(g) {
+    const c = T / 2;
+
+    g.clear();
+    // Radio chassis
+    g.fillStyle(0x283850, 1);
+    g.fillRect(c - 8, c - 6, 16, 12);
+    g.lineStyle(1, 0x66ccff, 0.9);
+    g.strokeRect(c - 8, c - 6, 16, 12);
+
+    // Antenna
+    g.lineStyle(1, 0x90a8cc, 1);
+    g.lineBetween(c - 5, c - 6, c - 5, c - 11);
+    g.fillStyle(0x66ccff, 1);
+    g.fillCircle(c - 5, c - 11, 1.5);
+
+    // Speaker slits
+    g.fillStyle(0x101a2e, 1);
+    g.fillRect(c - 3, c - 3, 8, 2);
+    g.fillRect(c - 3, c + 1, 8, 2);
+
+    g.generateTexture('decoy', T, T);
   }
 }

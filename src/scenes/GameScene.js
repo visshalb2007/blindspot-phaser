@@ -336,7 +336,7 @@ export default class GameScene extends Phaser.Scene {
     });
     this.activeDecoys.push(decoy);
 
-    const sprite = this.add.image(at.x, at.y, 'chip').setDepth(3).setTint(0x66ccff);
+    const sprite = this.add.image(at.x, at.y, 'decoy').setDepth(3);
     this.decoySprites.set(decoy, sprite);
     this.tweens.add({
       targets: sprite,
@@ -395,6 +395,8 @@ export default class GameScene extends Phaser.Scene {
   _onPlayerHit() {
     if (!this.player.takeHit()) return;
     SOUND.playHit();
+    this.cameras.main.shake(160, 0.01);
+    this.cameras.main.flash(100, 200, 50, 50);
 
     if (this.player.isDead) this._catchPlayer();
   }
