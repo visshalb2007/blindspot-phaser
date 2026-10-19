@@ -12,6 +12,7 @@ import { clampDelta } from '../utils/Timer.js';
 import { STATE } from '../ai/states.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
+import { SOUND } from '../utils/Audio.js';
 
 /**
  * Where the guards are told the player is when nobody is playing.
@@ -94,9 +95,16 @@ export default class GameScene extends Phaser.Scene {
     if (!this.shadow) {
       this._buildHud();
 
+      this.input.keyboard.on('keydown', () => SOUND.init());
+      this.input.on('pointerdown', () => SOUND.init());
+
       this.input.keyboard.on('keydown-F1', () => this.toggleDebug());
       this.input.keyboard.on('keydown-R', () => this.restartLevel());
       this.input.keyboard.on('keydown-ESC', () => this._exitToDashboard());
+      this.input.keyboard.on('keydown-M', () => {
+        SOUND.toggleMute();
+        this._updateHud();
+      });
 
       // The decoy radio only listens where the level actually issued one, so
       // Q is a dead key on every run that shipped without the gadget.
@@ -123,6 +131,11 @@ export default class GameScene extends Phaser.Scene {
 
     this.clock.tick(dt);
     this.player.update(dt);
+    SOUND.step(dt, {
+      moving: this.player.isMoving,
+      sneaking: this.player.sneaking,
+      sprinting: this.player.sprinting,
+    });
 
     // Chips and the door come first: a chip is taken on the frame the player
     // reached it, and a run that ends here does not also take a swing.
@@ -284,6 +297,11 @@ export default class GameScene extends Phaser.Scene {
         tuning: this.levelConfig.enemy,
         // The brain does not know what a hit means; the scene does.
         onHit: () => this._onPlayerHit(),
+        onStateChange: (to) => {
+          if (this.shadow) return;
+          if (to === STATE.SUSPICIOUS) SOUND.playSuspicious();
+          else if (to === STATE.CHASE) SOUND.playChase();
+        },
       });
 
       // The relay's bookkeeping lives on the wrapper rather than in the brain,
@@ -307,6 +325,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.caught || this.mission.won) return;
 
     this.decoysLeft -= 1;
+    SOUND.playDecoyDrop();
 
     const at = this.player.position;
     const decoy = new Decoy({
@@ -375,6 +394,7 @@ export default class GameScene extends Phaser.Scene {
    */
   _onPlayerHit() {
     if (!this.player.takeHit()) return;
+    SOUND.playHit();
 
     if (this.player.isDead) this._catchPlayer();
   }
@@ -416,6 +436,12 @@ export default class GameScene extends Phaser.Scene {
       });
     }
 
+    if (this.mission.isUnlocked) {
+      SOUND.playExitUnlocked();
+    } else {
+      SOUND.playChip();
+    }
+
     this._paintExit();
   }
 
@@ -427,6 +453,7 @@ export default class GameScene extends Phaser.Scene {
     // index goes along, so the start page learns this rung has been climbed.
     this.clock.stop();
     this.stats.recordWin(this.clock.seconds, this.mission.collected, this.levelIndex);
+    SOUND.playWin();
 
     this._updateHud();
     this._showStatus(
@@ -472,6 +499,7 @@ export default class GameScene extends Phaser.Scene {
     // set a time, so this is recorded as an ending and nothing more.
     this.clock.stop();
     this.stats.recordCatch(this.clock.seconds, this.mission.collected);
+    SOUND.playCaught();
 
     this._updateHud();
     this._showStatus(`CAUGHT after ${this.clock.formatted} - press R to try again`, '#ff8888');
@@ -568,6 +596,7 @@ export default class GameScene extends Phaser.Scene {
     // with for the player's attention; the relay line is quieter, because the
     // relay is only ever news after it has already shouted.
     if (this.gadgets.decoys > 0) first += `    DECOYS ${this.decoysLeft} (Q)`;
+    first += SOUND.isMuted ? '    [MUTED (M)]' : '    [SOUND (M)]';
 
     const lines = [first, ...(this.relayOn ? ['RADIO: a chase is shared with every guard'] : [])];
 

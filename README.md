@@ -64,6 +64,7 @@ WebGL or Canvas 2D.
 | `Shift` | Sprint (fast, loud, drains stamina) |
 | `Ctrl` | Sneak (silent, slow) |
 | `Q` | Drop a noise decoy (only where the level issues one) |
+| `M` | Toggle audio mute / unmute |
 | `F1` | Toggle the debug overlay |
 | `R` | Restart the level |
 | `Esc` | Leave the run and go back to the start page |

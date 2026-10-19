@@ -6,6 +6,7 @@ import { LEVELS, LEVEL_COUNT, DEFAULT_LEVEL, levelAt, configFor } from '../world
 import { buildBriefing } from '../world/Briefing.js';
 import { RunStats, browserStorage } from '../world/RunStats.js';
 import { formatDuration } from '../utils/Clock.js';
+import { SOUND } from '../utils/Audio.js';
 
 /** Where a panel puts its values, measured from the panel's left edge. */
 const LABEL_WIDTH = 112;
@@ -87,6 +88,13 @@ export default class DashboardScene extends Phaser.Scene {
     this._drawLadder();
     this._drawPanels();
     this._drawHint();
+
+    this.input.keyboard.on('keydown', () => SOUND.init());
+    this.input.on('pointerdown', () => SOUND.init());
+    this.input.keyboard.on('keydown-M', () => {
+      SOUND.toggleMute();
+      this._updateSoundIndicator();
+    });
 
     this.input.keyboard.on('keydown-SPACE', () => this.startRun());
     this.input.keyboard.on('keydown-ENTER', () => this.startRun());
@@ -322,5 +330,21 @@ export default class DashboardScene extends Phaser.Scene {
       yoyo: true,
       repeat: -1,
     });
+
+    this.soundIndicator = this.add
+      .text(CONFIG.map.widthPx - 20, CONFIG.map.heightPx - 20, '', {
+        fontFamily: CONFIG.ui.font,
+        fontSize: '11px',
+        color: '#5c6a90',
+      })
+      .setOrigin(1, 0.5);
+
+    this._updateSoundIndicator();
+  }
+
+  _updateSoundIndicator() {
+    if (!this.soundIndicator) return;
+    this.soundIndicator.setText(`M: ${SOUND.isMuted ? 'UNMUTE' : 'MUTE'}`);
+    this.soundIndicator.setColor(SOUND.isMuted ? '#ff8888' : '#5c6a90');
   }
 }

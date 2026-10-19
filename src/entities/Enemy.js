@@ -42,9 +42,14 @@ export class Enemy {
 
     this.debug = scene.add.graphics().setDepth(6);
 
+    this.onStateChange = options.onStateChange ?? null;
+
     // Reusing the state machine's own hook keeps the visuals in step with the
     // logic without the brain having to know that a sprite exists.
-    this.brain.fsm.onChange = () => this.refreshStateVisuals();
+    this.brain.fsm.onChange = (from, to) => {
+      this.refreshStateVisuals();
+      if (this.onStateChange) this.onStateChange(to, from);
+    };
     this.refreshStateVisuals();
   }
 
