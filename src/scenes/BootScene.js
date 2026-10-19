@@ -40,6 +40,9 @@ export default class BootScene extends Phaser.Scene {
     this._decoy(g);
 
     g.destroy();
+
+    this._vignette();
+    this._alertVignette();
   }
 
   _floor(g) {
@@ -136,5 +139,52 @@ export default class BootScene extends Phaser.Scene {
     g.fillRect(c - 3, c + 1, 8, 2);
 
     g.generateTexture('decoy', T, T);
+  }
+
+  _vignette() {
+    const w = CONFIG.map.widthPx;
+    const h = CONFIG.map.heightPx;
+    const canvasTexture = this.textures.createCanvas('vignette', w, h);
+    if (!canvasTexture) return;
+    const ctx = canvasTexture.getContext();
+    const cx = w / 2;
+    const cy = h / 2;
+    const r = Math.max(cx, cy);
+
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.35, cx, cy, r * 1.05);
+    grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    grad.addColorStop(0.65, 'rgba(2, 4, 10, 0.25)');
+    grad.addColorStop(0.9, 'rgba(2, 4, 10, 0.65)');
+    grad.addColorStop(1, 'rgba(1, 2, 6, 0.88)');
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    canvasTexture.refresh();
+  }
+
+  _alertVignette() {
+    const w = CONFIG.map.widthPx;
+    const h = CONFIG.map.heightPx;
+    const canvasTexture = this.textures.createCanvas('alert_vignette', w, h);
+    if (!canvasTexture) return;
+    const ctx = canvasTexture.getContext();
+    const cx = w / 2;
+    const cy = h / 2;
+    const r = Math.max(cx, cy);
+
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 1.05);
+    grad.addColorStop(0, 'rgba(255, 0, 0, 0)');
+    grad.addColorStop(0.5, 'rgba(255, 0, 0, 0.04)');
+    grad.addColorStop(0.8, 'rgba(255, 0, 0, 0.35)');
+    grad.addColorStop(1, 'rgba(220, 0, 0, 0.75)');
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(255, 50, 50, 0.9)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, w - 4, h - 4);
+
+    canvasTexture.refresh();
   }
 }

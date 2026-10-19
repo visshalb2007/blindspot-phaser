@@ -97,6 +97,7 @@ export default class GameScene extends Phaser.Scene {
     this._buildWaypointLabels();
 
     if (!this.shadow) {
+      this._buildAtmosphere();
       this._buildHud();
 
       this.input.keyboard.on('keydown', () => SOUND.init());
@@ -212,6 +213,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this._updateHud();
+    this._updateAlertEffects(dt);
 
     if (this.debugOn) this._drawWaypointDebug();
   }
@@ -430,6 +432,7 @@ export default class GameScene extends Phaser.Scene {
     SOUND.playHit();
     this.cameras.main.shake(160, 0.01);
     this.cameras.main.flash(100, 200, 50, 50);
+    if (this.alertOverlay) this.alertOverlay.setAlpha(0.85);
 
     if (this.player.isDead) this._catchPlayer();
   }
@@ -648,6 +651,11 @@ export default class GameScene extends Phaser.Scene {
       this.statusText = null;
     }
 
+    if (this.alertOverlay) {
+      this.alertOverlay.setAlpha(0);
+      this.alertPulsePhase = 0;
+    }
+
     this.caught = false;
     this._updateHud();
   }
@@ -668,6 +676,57 @@ export default class GameScene extends Phaser.Scene {
       this.pauseOverlay = null;
     }
     this.scene.start('Dashboard', { levelIndex: this.levelIndex });
+  }
+
+  _buildAtmosphere() {
+    this.vignette = this.add
+      .image(0, 0, 'vignette')
+      .setOrigin(0, 0)
+      .setDepth(18)
+      .setScrollFactor(0);
+
+    this.alertOverlay = this.add
+      .image(0, 0, 'alert_vignette')
+      .setOrigin(0, 0)
+      .setDepth(19)
+      .setScrollFactor(0)
+      .setAlpha(0);
+
+    this.alertPulsePhase = 0;
+  }
+
+  _updateAlertEffects(dt) {
+    if (!this.alertOverlay) return;
+
+    const inChase = this.enemies.some(
+      (e) => e.brain.state === STATE.CHASE || e.brain.state === STATE.ATTACK,
+    );
+    const inAlert =
+      !inChase &&
+      this.enemies.some(
+        (e) => e.brain.state === STATE.SUSPICIOUS || e.brain.state === STATE.SEARCH,
+      );
+
+    if (inChase) {
+      // Adrenaline alarm pulse between 0.35 and 0.72 at roughly 3.5Hz
+      this.alertPulsePhase = (this.alertPulsePhase || 0) + (dt / 1000) * 18;
+      const pulse = 0.52 + Math.sin(this.alertPulsePhase) * 0.2;
+      this.alertOverlay.setAlpha(pulse);
+      this.alertOverlay.setTint(0xff3333);
+    } else if (inAlert) {
+      this.alertPulsePhase = 0;
+      const target = 0.22;
+      const current = this.alertOverlay.alpha;
+      this.alertOverlay.setAlpha(current + (target - current) * Math.min(1, (dt / 1000) * 5));
+      this.alertOverlay.setTint(0xffaa22);
+    } else {
+      this.alertPulsePhase = 0;
+      if (this.alertOverlay.alpha > 0.01) {
+        this.alertOverlay.setAlpha(this.alertOverlay.alpha * Math.max(0, 1 - (dt / 1000) * 4));
+      } else {
+        this.alertOverlay.setAlpha(0);
+      }
+    }
   }
 
   /**
