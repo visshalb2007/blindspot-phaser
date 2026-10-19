@@ -64,14 +64,16 @@ WebGL or Canvas 2D.
 | `Shift` | Sprint (fast, loud, drains stamina) |
 | `Ctrl` | Sneak (silent, slow) |
 | `Q` | Drop a noise decoy (only where the level issues one) |
+| `P` | Pause / unpause the run |
 | `M` | Toggle audio mute / unmute |
 | `F1` | Toggle the debug overlay |
 | `R` | Restart the level |
-| `Esc` | Leave the run and go back to the start page |
+| `Esc` | Pause menu during a run / Return to dashboard |
 
-On the start page, `Space` / `Enter` / a click starts a run on the level on the
-board, `1`-`0` picks a level outright, `Left` / `Right` walk the ladder, and
-clicking a rung picks it.
+On victory, `Space` or `N` advances directly to the next level. On the start
+page, `Space` / `Enter` / a click starts a run on the level on the board,
+`1`-`0` picks a level outright, `Left` / `Right` walk the ladder, and clicking a
+rung picks it.
 
 ## A run
 

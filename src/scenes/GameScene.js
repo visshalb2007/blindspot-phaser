@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 
 import { CONFIG } from '../config.js';
 import { Grid } from '../world/Grid.js';
-import { DEFAULT_LEVEL, levelAt, configFor, gadgetsFor, relayFor } from '../world/Levels.js';
+import { LEVEL_COUNT, DEFAULT_LEVEL, levelAt, configFor, gadgetsFor, relayFor } from '../world/Levels.js';
 import { Decoy, loudestNoise } from '../world/Decoy.js';
 import { Mission } from '../world/Mission.js';
 import { guardPosts } from '../world/Roster.js';
@@ -57,6 +57,8 @@ export default class GameScene extends Phaser.Scene {
 
     this.debugOn = false;
     this.caught = false;
+    this.isPaused = false;
+    this.pauseOverlay = null;
     this.statusText = null;
 
     // The level's own contract: how many guards it posts, how they are turned
@@ -100,7 +102,32 @@ export default class GameScene extends Phaser.Scene {
 
       this.input.keyboard.on('keydown-F1', () => this.toggleDebug());
       this.input.keyboard.on('keydown-R', () => this.restartLevel());
-      this.input.keyboard.on('keydown-ESC', () => this._exitToDashboard());
+      this.input.keyboard.on('keydown-P', () => {
+        if (!this.caught && !this.mission.won) {
+          this.togglePause();
+        }
+      });
+      this.input.keyboard.on('keydown-ESC', () => {
+        if (this.isPaused) {
+          this._exitToDashboard();
+        } else if (!this.caught && !this.mission.won) {
+          this.togglePause();
+        } else {
+          this._exitToDashboard();
+        }
+      });
+      this.input.keyboard.on('keydown-SPACE', () => {
+        if (this.isPaused) {
+          this.togglePause();
+        } else if (this.mission.won) {
+          this._advanceNextLevel();
+        }
+      });
+      this.input.keyboard.on('keydown-N', () => {
+        if (this.mission.won) {
+          this._advanceNextLevel();
+        }
+      });
       this.input.keyboard.on('keydown-M', () => {
         SOUND.toggleMute();
         this._updateHud();
@@ -109,7 +136,9 @@ export default class GameScene extends Phaser.Scene {
       // The decoy radio only listens where the level actually issued one, so
       // Q is a dead key on every run that shipped without the gadget.
       if (this.gadgets.decoys > 0) {
-        this.input.keyboard.on('keydown-Q', () => this._dropDecoy());
+        this.input.keyboard.on('keydown-Q', () => {
+          if (!this.isPaused) this._dropDecoy();
+        });
       }
     }
 
@@ -124,10 +153,8 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Being caught or walking out with the loot is a full stop: the guards hold
-    // the pose they left you in and R is the only way out of it. The clock is
-    // stopped with them, so the time on the banner is the time the run took.
-    if (this.caught || this.mission.won) return;
+    // Being paused, caught or walking out with the loot is a full stop.
+    if (this.isPaused || this.caught || this.mission.won) return;
 
     this.clock.tick(dt);
     this.player.update(dt);
@@ -458,10 +485,57 @@ export default class GameScene extends Phaser.Scene {
     SOUND.playWin();
 
     this._updateHud();
+
+    const hasNext = this.levelIndex < LEVEL_COUNT - 1;
+    const nextName = hasNext ? levelAt(this.levelIndex + 1).name : '';
+    const nextHint = hasNext
+      ? `Press SPACE or N for NEXT LEVEL (${nextName})\nPress R to replay, ESC for dashboard`
+      : 'ALL LEVELS CLEARED!\nPress SPACE or R to replay, ESC for dashboard';
+
     this._showStatus(
-      `MISSION COMPLETE in ${this.clock.formatted} - press R for another go`,
+      `MISSION COMPLETE in ${this.clock.formatted}\n\n${nextHint}`,
       '#88ff99',
     );
+  }
+
+  _advanceNextLevel() {
+    if (this.levelIndex < LEVEL_COUNT - 1) {
+      this.scene.start('Game', { shadow: false, levelIndex: this.levelIndex + 1 });
+    } else {
+      this.restartLevel();
+    }
+  }
+
+  togglePause() {
+    this.isPaused = !this.isPaused;
+
+    if (this.isPaused) {
+      this.player.sprite.setVelocity(0, 0);
+      const bg = this.add
+        .rectangle(0, 0, CONFIG.map.widthPx, CONFIG.map.heightPx, 0x05070c, 0.72)
+        .setOrigin(0, 0)
+        .setDepth(35);
+      const text = this.add
+        .text(
+          CONFIG.map.widthPx / 2,
+          CONFIG.map.heightPx / 2,
+          'PAUSED\n\n[P / Space] Resume\n[R] Restart Level\n[Esc] Exit to Dashboard',
+          {
+            fontFamily: CONFIG.ui.font,
+            fontSize: '17px',
+            color: '#e6ecff',
+            align: 'center',
+            backgroundColor: '#000000dd',
+            padding: { x: 24, y: 18 },
+          },
+        )
+        .setOrigin(0.5)
+        .setDepth(36);
+      this.pauseOverlay = [bg, text];
+    } else if (this.pauseOverlay) {
+      this.pauseOverlay.forEach((obj) => obj.destroy());
+      this.pauseOverlay = null;
+    }
   }
 
   /**
@@ -479,8 +553,9 @@ export default class GameScene extends Phaser.Scene {
         fontFamily: CONFIG.ui.font,
         fontSize: '18px',
         color,
+        align: 'center',
         backgroundColor: '#000000cc',
-        padding: { x: 12, y: 8 },
+        padding: { x: 16, y: 12 },
       })
       .setOrigin(0.5)
       .setDepth(30);
@@ -504,7 +579,10 @@ export default class GameScene extends Phaser.Scene {
     SOUND.playCaught();
 
     this._updateHud();
-    this._showStatus(`CAUGHT after ${this.clock.formatted} - press R to try again`, '#ff8888');
+    this._showStatus(
+      `CAUGHT after ${this.clock.formatted}\n\nPress R to try again, ESC for dashboard`,
+      '#ff8888',
+    );
   }
 
   // ------------------------------------------------------------------- debug
@@ -517,6 +595,10 @@ export default class GameScene extends Phaser.Scene {
    * debug toggle, whereas a reset is instant and leaves the world alone.
    */
   restartLevel() {
+    if (this.isPaused) {
+      this.togglePause();
+    }
+
     // A restart is a fresh run, not a continuation: the clock goes back to zero
     // and it counts as another attempt, which is what makes the record on the
     // start page read as a history rather than as a best.
@@ -560,6 +642,10 @@ export default class GameScene extends Phaser.Scene {
    * you were on rather than to the first one.
    */
   _exitToDashboard() {
+    if (this.pauseOverlay) {
+      this.pauseOverlay.forEach((obj) => obj.destroy());
+      this.pauseOverlay = null;
+    }
     this.scene.start('Dashboard', { levelIndex: this.levelIndex });
   }
 
