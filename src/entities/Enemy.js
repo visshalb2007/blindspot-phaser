@@ -1,7 +1,8 @@
 import { CONFIG } from '../config.js';
 import { EnemyBrain } from '../ai/EnemyBrain.js';
-import { colorFor, iconFor } from '../ai/states.js';
+import { STATE, colorFor, iconFor } from '../ai/states.js';
 import { degToRad } from '../world/geometry.js';
+import { computeVisionCone } from '../world/VisionCone.js';
 
 /**
  * Thin Phaser wrapper around one guard.
@@ -42,6 +43,7 @@ export class Enemy {
       .setOrigin(0.5)
       .setDepth(21);
 
+    this.visionConeGraphics = scene.add.graphics().setDepth(3);
     this.debug = scene.add.graphics().setDepth(6);
 
     this.onStateChange = options.onStateChange ?? null;
@@ -72,6 +74,7 @@ export class Enemy {
     this.label.setText(state);
     this.label.setColor(`#${color.toString(16).padStart(6, '0')}`);
     this.icon.setText(iconFor(state));
+    this._drawVisionCone();
   }
 
   update(dt, target, noise = null) {
@@ -82,6 +85,7 @@ export class Enemy {
     this.label.setPosition(this.brain.x, this.brain.y - 24);
     this.icon.setPosition(this.brain.x, this.brain.y - 40);
 
+    this._drawVisionCone();
     if (this.debugVisible) this._drawDebug();
   }
 
@@ -174,12 +178,102 @@ export class Enemy {
     }
   }
 
+  /**
+   * Real-time dynamic vision cone casting through the grid.
+   *
+   * Renders a soft ambient field-of-view beam, an inner intense flashlight
+   * core, and a crisp perimeter boundary line, stopping cleanly at walls.
+   */
+  _drawVisionCone() {
+    const g = this.visionConeGraphics;
+    const b = this.brain;
+    const { sightRange, fov } = b.tuning;
+    const state = b.state;
+    const color = colorFor(state);
+
+    g.clear();
+
+    const { outer, inner } = computeVisionCone(
+      { x: b.x, y: b.y },
+      b.heading,
+      fov,
+      sightRange,
+      b.grid,
+      36,
+    );
+
+    if (outer.length === 0) return;
+
+    let outerAlpha = 0.12;
+    let innerAlpha = 0.22;
+    let rimAlpha = 0.45;
+
+    if (state === STATE.SUSPICIOUS) {
+      outerAlpha = 0.18;
+      innerAlpha = 0.32;
+      rimAlpha = 0.65;
+    } else if (state === STATE.CHASE || state === STATE.ATTACK) {
+      outerAlpha = 0.28;
+      innerAlpha = 0.45;
+      rimAlpha = 0.85;
+    } else if (state === STATE.SEARCH) {
+      outerAlpha = 0.20;
+      innerAlpha = 0.35;
+      rimAlpha = 0.60;
+    }
+
+    // 1. Wide ambient beam
+    g.fillStyle(color, outerAlpha);
+    g.beginPath();
+    g.moveTo(b.x, b.y);
+    for (const pt of outer) {
+      g.lineTo(pt.x, pt.y);
+    }
+    g.closePath();
+    g.fillPath();
+
+    // 2. Focused central flashlight hotspot
+    if (inner.length > 0) {
+      g.fillStyle(color, innerAlpha);
+      g.beginPath();
+      g.moveTo(b.x, b.y);
+      for (const pt of inner) {
+        g.lineTo(pt.x, pt.y);
+      }
+      g.closePath();
+      g.fillPath();
+    }
+
+    // 3. Perimeter rim line along beam edge
+    g.lineStyle(1.5, color, rimAlpha);
+    g.beginPath();
+    g.moveTo(outer[0].x, outer[0].y);
+    for (let i = 1; i < outer.length; i += 1) {
+      g.lineTo(outer[i].x, outer[i].y);
+    }
+    g.strokePath();
+
+    // Subtle edge rays framing the field of view
+    g.lineStyle(1, color, rimAlpha * 0.4);
+    g.lineBetween(b.x, b.y, outer[0].x, outer[0].y);
+    g.lineBetween(b.x, b.y, outer[outer.length - 1].x, outer[outer.length - 1].y);
+  }
+
   reset() {
     this.brain.reset();
     this.sprite.setPosition(this.brain.x, this.brain.y);
     this.sprite.setRotation(this.brain.heading);
     this.refreshStateVisuals();
     this.debug.clear();
+    this.visionConeGraphics.clear();
+  }
+
+  destroy() {
+    this.sprite.destroy();
+    this.label.destroy();
+    this.icon.destroy();
+    this.debug.destroy();
+    this.visionConeGraphics.destroy();
   }
 }
 

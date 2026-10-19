@@ -251,7 +251,7 @@ export default class GameScene extends Phaser.Scene {
       for (let cx = 0; cx < this.grid.cols; cx += 1) {
         if (!this.grid.isWall(cx, cy)) continue;
         const { x, y } = this.grid.cellToWorld(cx, cy);
-        this.walls.create(x, y, 'wall').setDepth(1);
+        this.walls.create(x, y, 'wall').setDepth(4);
       }
     }
   }
