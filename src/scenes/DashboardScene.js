@@ -10,10 +10,11 @@ import { SOUND } from '../utils/Audio.js';
 
 /** Where a panel puts its values, measured from the panel's left edge. */
 const LABEL_WIDTH = 112;
-const ROW_HEIGHT = 17;
+const ROW_HEIGHT = 15;
 
 /** Below the ladder and its caption line. */
-const PANEL_TOP = 134;
+const PANEL_TOP = 130;
+const PANEL_GAP = 8;
 
 /** The ladder tiles: ten rungs, one box each, sized to fit the page exactly. */
 const TILE_WIDTH = 72;
@@ -21,6 +22,14 @@ const TILE_HEIGHT = 40;
 const TILE_GAP = 4;
 const LADDER_X = 20;
 const LADDER_Y = 68;
+
+function tileShortName(name) {
+  const upper = name.toUpperCase();
+  if (upper === 'EXECUTIVE WING') return 'EXECUTIVE';
+  if (upper === 'SECURITY WING') return 'SECURITY';
+  if (upper === 'THE EXCHANGE') return 'EXCHANGE';
+  return upper;
+}
 
 /**
  * Phaser's names for the number keys, so a level can be picked with 1-0. Ten
@@ -204,45 +213,55 @@ export default class DashboardScene extends Phaser.Scene {
       const selected = index === this.levelIndex;
       const x = LADDER_X + index * (TILE_WIDTH + TILE_GAP);
       const best = this.stats.bestTimeFor(index);
+      const isGhost = this.stats.isGhostFor(index);
 
       const frame = this.add
         .rectangle(x, LADDER_Y, TILE_WIDTH, TILE_HEIGHT, CONFIG.ui.panel, selected ? 0.95 : 0.6)
         .setOrigin(0, 0)
-        .setStrokeStyle(2, CONFIG.ui.panelLine, selected ? 1 : 0.55)
+        .setStrokeStyle(2, selected ? 0xffd166 : CONFIG.ui.panelLine, selected ? 1 : 0.55)
         .setInteractive({ useHandCursor: true });
 
       // Clicking a rung picks it; a click that lands on nothing else still
       // starts the run (the page-level pointer handler checks for hits).
       frame.on('pointerup', () => this.selectLevel(index));
 
-      this.add.text(x + 8, LADDER_Y + 5, `${selected ? '>' : ''}${index + 1}`, {
+      // Row 1: Index with selection arrow on the left, star badge on the right
+      this.add.text(x + 6, LADDER_Y + 4, `${selected ? '>' : ''}${index + 1}`, {
         fontFamily: CONFIG.ui.font,
-        fontSize: '14px',
-        color: selected ? CONFIG.ui.hint : '#5c6a90',
+        fontSize: '12px',
+        fontStyle: selected ? 'bold' : 'normal',
+        color: selected ? CONFIG.ui.hint : '#8b98bd',
       });
 
-      const isGhost = this.stats.isGhostFor(index);
-      const timeStr = best === null ? '—' : `${formatDuration(best)}${isGhost ? ' ★' : ''}`;
-      this.add.text(x + 8, LADDER_Y + 23, timeStr, {
+      if (isGhost) {
+        this.add
+          .text(x + TILE_WIDTH - 6, LADDER_Y + 4, '★', {
+            fontFamily: CONFIG.ui.font,
+            fontSize: '11px',
+            color: '#ffd166',
+          })
+          .setOrigin(1, 0);
+      }
+
+      // Row 2: Short level name, single line, cleanly spaced
+      this.add.text(x + 6, LADDER_Y + 17, tileShortName(level.name), {
         fontFamily: CONFIG.ui.font,
-        fontSize: '10px',
-        color: best === null ? '#3d4a6b' : isGhost ? '#ffd166' : '#9fe8a9',
+        fontSize: '8px',
+        color: selected ? '#ffffff' : '#8b98bd',
       });
 
-      // A shorter name, cropped rather than wrapped: the tile is a number plate,
-      // and the name it stamps is the brief's business.
-      this.add.text(x + 24, LADDER_Y + 8, level.name.toUpperCase(), {
+      // Row 3: Best escape time or dash
+      this.add.text(x + 6, LADDER_Y + 28, best === null ? '—' : formatDuration(best), {
         fontFamily: CONFIG.ui.font,
         fontSize: '9px',
-        color: selected ? '#e6ecff' : '#8b98bd',
-        wordWrap: { width: TILE_WIDTH - 30 },
+        color: best === null ? '#3d4a6b' : isGhost ? '#ffd166' : '#9fe8a9',
       });
     });
 
     this.add
       .text(
         CONFIG.map.widthPx - 20,
-        LADDER_Y + TILE_HEIGHT + 8,
+        LADDER_Y + TILE_HEIGHT + 6,
         'number keys or left/right - click a rung to pick it',
         {
           fontFamily: CONFIG.ui.font,
@@ -254,22 +273,35 @@ export default class DashboardScene extends Phaser.Scene {
   }
 
   /**
-   * Two columns of panels: the briefing on the left, the guards and the record
-   * on the right, which is roughly level and leaves the bottom of the screen
-   * showing the patrol the page is describing.
+   * Two balanced columns of panels:
+   * Left: The Job, Controls, and Your Record
+   * Right: The Guards and How They Think
+   * Sized and spaced so neither overflows the screen.
    */
   _drawPanels() {
     const sections = this.briefing.sections;
+    const byHeading = Object.fromEntries(sections.map((s) => [s.heading, s]));
+
+    const leftSections = [
+      byHeading['THE JOB'],
+      byHeading['CONTROLS'],
+      byHeading['YOUR RECORD'],
+    ].filter(Boolean);
+    const rightSections = [
+      byHeading['THE GUARDS'],
+      byHeading['HOW THEY THINK'],
+    ].filter(Boolean);
+
     const columns = [
-      { x: 20, width: 372, sections: sections.slice(0, 2) },
-      { x: 404, width: 376, sections: sections.slice(2) },
+      { x: 20, width: 372, sections: leftSections },
+      { x: 404, width: 376, sections: rightSections },
     ];
 
     for (const column of columns) {
       let y = PANEL_TOP;
 
       for (const section of column.sections) {
-        y += this._drawPanel(column.x, y, column.width, section) + 12;
+        y += this._drawPanel(column.x, y, column.width, section) + PANEL_GAP;
       }
     }
   }
@@ -278,35 +310,34 @@ export default class DashboardScene extends Phaser.Scene {
    * @returns {number} the panel's height, so the caller can stack the next one
    */
   _drawPanel(x, y, width, section) {
-    const height = 34 + section.rows.length * ROW_HEIGHT;
+    const height = 26 + section.rows.length * ROW_HEIGHT;
 
     this.add
       .rectangle(x, y, width, height, CONFIG.ui.panel, CONFIG.ui.panelAlpha)
       .setOrigin(0, 0)
       .setStrokeStyle(1, CONFIG.ui.panelLine, 0.9);
 
-    // The heading sits on a filled strip of its own, so a panel's title reads
-    // as a title and not as the first row of its own list.
-    this.add.rectangle(x, y, width, 22, 0x101a2e, 0.9).setOrigin(0, 0);
+    // The heading sits on a filled strip of its own.
+    this.add.rectangle(x, y, width, 20, 0x101a2e, 0.9).setOrigin(0, 0);
 
-    this.add.text(x + 12, y + 5, section.heading, {
+    this.add.text(x + 10, y + 4, section.heading, {
       fontFamily: CONFIG.ui.font,
-      fontSize: '12px',
+      fontSize: '11px',
       color: CONFIG.ui.heading,
     });
 
     section.rows.forEach((row, index) => {
-      const rowY = y + 30 + index * ROW_HEIGHT;
+      const rowY = y + 24 + index * ROW_HEIGHT;
 
-      this.add.text(x + 12, rowY, row.label, {
+      this.add.text(x + 10, rowY, row.label, {
         fontFamily: CONFIG.ui.font,
-        fontSize: '12px',
+        fontSize: '11px',
         color: CONFIG.ui.label,
       });
 
-      this.add.text(x + 12 + LABEL_WIDTH, rowY, row.value, {
+      this.add.text(x + 10 + LABEL_WIDTH, rowY, row.value, {
         fontFamily: CONFIG.ui.font,
-        fontSize: '12px',
+        fontSize: '11px',
         color: CONFIG.ui.value,
       });
     });
@@ -316,9 +347,9 @@ export default class DashboardScene extends Phaser.Scene {
 
   _drawHint() {
     const hint = this.add
-      .text(CONFIG.map.widthPx / 2, CONFIG.map.heightPx - 30, this.briefing.hint, {
+      .text(CONFIG.map.widthPx / 2, CONFIG.map.heightPx - 20, this.briefing.hint, {
         fontFamily: CONFIG.ui.font,
-        fontSize: '17px',
+        fontSize: '15px',
         color: CONFIG.ui.hint,
       })
       .setOrigin(0.5);
